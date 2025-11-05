@@ -86,5 +86,11 @@ export const exportTrades = async () => {
   return response.data
 }
 
+// Get AI reasoning logs
+export const getAILogs = async (days = 7) => {
+  const response = await api.get(`/ai-logs?days=${days}`)
+  return response.data
+}
+
 export default api
 

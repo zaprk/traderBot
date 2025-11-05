@@ -7,13 +7,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Dict, Optional
 import logging
+import json
+import os
+from datetime import datetime, timedelta
 
 from bot.market import create_exchange, fetch_multi_timeframes, get_current_price, format_symbol
 from bot.indicators import calculate_all_indicators
 from bot.llm_agent import LLMAgent
 from bot.trade_manager import TradeManager
 from bot.db import db
-from bot.logger import log_trade_to_csv, log_decision, log_llm_reasoning, export_trades_csv
+from bot.logger import log_trade_to_csv, log_decision, log_llm_reasoning, export_trades_csv, LOG_DIR
 from bot.backtest import Backtest, simple_rsi_strategy, monte_carlo_simulation
 from config import settings
 
@@ -132,9 +135,9 @@ async def get_balance():
     """Get account balance"""
     try:
         if settings.paper_mode:
-            # Return simulated balance
+            # Return simulated balance from config
             return {
-                "balance": 10000.0,
+                "balance": float(settings.initial_balance),
                 "currency": settings.base_currency,
                 "paper_mode": True
             }
@@ -506,6 +509,42 @@ async def run_monte_carlo(win_rate: float = 0.55, avg_win: float = 100,
         return results
     except Exception as e:
         logger.error(f"Error running Monte Carlo: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Get AI reasoning logs
+@app.get("/ai-logs")
+async def get_ai_logs(days: int = 7):
+    """Get AI reasoning logs from the past N days"""
+    try:
+        logs = []
+        today = datetime.utcnow()
+        
+        # Check logs for the past N days
+        for day_offset in range(days):
+            date = today - timedelta(days=day_offset)
+            date_str = date.strftime('%Y%m%d')
+            log_file = os.path.join(LOG_DIR, f"llm_reasoning_{date_str}.jsonl")
+            
+            if os.path.exists(log_file):
+                try:
+                    with open(log_file, 'r') as f:
+                        for line in f:
+                            if line.strip():
+                                entry = json.loads(line)
+                                logs.append(entry)
+                except Exception as e:
+                    logger.error(f"Error reading log file {log_file}: {e}")
+        
+        # Sort by timestamp descending (newest first)
+        logs.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+        
+        return {
+            "logs": logs[:100],  # Return last 100 entries
+            "count": len(logs[:100])
+        }
+    except Exception as e:
+        logger.error(f"Error fetching AI logs: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

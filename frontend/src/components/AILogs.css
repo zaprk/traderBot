@@ -1,0 +1,271 @@
+.ai-logs-container {
+  padding: 20px;
+}
+
+.ai-logs-loading,
+.ai-logs-empty {
+  text-align: center;
+  padding: 40px;
+  color: #888;
+  font-size: 16px;
+}
+
+.ai-logs-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.ai-logs-header h2 {
+  margin: 0;
+  font-size: 24px;
+}
+
+.ai-logs-filters {
+  display: flex;
+  gap: 10px;
+}
+
+.ai-logs-filters button {
+  padding: 8px 16px;
+  border: 1px solid #444;
+  background: #1a1a2e;
+  color: #fff;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.ai-logs-filters button:hover {
+  background: #252541;
+}
+
+.ai-logs-filters button.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-color: #667eea;
+}
+
+.ai-logs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.ai-log-card {
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+  border: 1px solid rgba(102, 126, 234, 0.3);
+  border-radius: 12px;
+  padding: 16px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.ai-log-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.3);
+  border-color: rgba(102, 126, 234, 0.6);
+}
+
+.ai-log-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.ai-log-time {
+  color: #888;
+  font-size: 14px;
+}
+
+.ai-log-summary {
+  font-weight: 600;
+  color: #667eea;
+}
+
+.ai-log-summary-text {
+  color: #ccc;
+  margin-bottom: 10px;
+  font-size: 15px;
+}
+
+.ai-log-symbols {
+  color: #888;
+  font-size: 13px;
+}
+
+/* Modal */
+.ai-log-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.ai-log-modal-content {
+  background: #1a1a2e;
+  border: 1px solid rgba(102, 126, 234, 0.3);
+  border-radius: 16px;
+  max-width: 900px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+
+.ai-log-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px;
+  border-bottom: 1px solid rgba(102, 126, 234, 0.3);
+}
+
+.ai-log-modal-header h3 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.ai-log-modal-header button {
+  background: none;
+  border: none;
+  color: #fff;
+  font-size: 32px;
+  cursor: pointer;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ai-log-modal-body {
+  padding: 20px;
+}
+
+.ai-log-detail-section {
+  margin-bottom: 20px;
+}
+
+.ai-log-detail-section strong {
+  display: block;
+  color: #667eea;
+  margin-bottom: 8px;
+  font-size: 16px;
+}
+
+.ai-reasoning-text {
+  background: rgba(0, 0, 0, 0.3);
+  border-left: 3px solid #667eea;
+  padding: 15px;
+  border-radius: 6px;
+  white-space: pre-wrap;
+  font-family: 'Courier New', monospace;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #ddd;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.ai-decisions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 15px;
+}
+
+.ai-decision-card {
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 8px;
+  padding: 15px;
+  border-left: 4px solid;
+}
+
+.ai-decision-card.long {
+  border-left-color: #10b981;
+}
+
+.ai-decision-card.short {
+  border-left-color: #ef4444;
+}
+
+.ai-decision-card.none {
+  border-left-color: #6b7280;
+}
+
+.ai-decision-symbol {
+  font-weight: 700;
+  font-size: 18px;
+  margin-bottom: 8px;
+}
+
+.ai-decision-action {
+  margin-bottom: 8px;
+}
+
+.action-long {
+  color: #10b981;
+  font-weight: 600;
+}
+
+.action-short {
+  color: #ef4444;
+  font-weight: 600;
+}
+
+.action-none {
+  color: #6b7280;
+  font-weight: 600;
+}
+
+.ai-decision-confidence {
+  color: #667eea;
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+.ai-decision-reason {
+  color: #aaa;
+  font-size: 14px;
+  margin-bottom: 10px;
+  font-style: italic;
+}
+
+.ai-decision-prices {
+  font-size: 13px;
+  color: #ccc;
+  line-height: 1.6;
+}
+
+/* Scrollbar for modal */
+.ai-log-modal-content::-webkit-scrollbar,
+.ai-reasoning-text::-webkit-scrollbar {
+  width: 8px;
+}
+
+.ai-log-modal-content::-webkit-scrollbar-track,
+.ai-reasoning-text::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+}
+
+.ai-log-modal-content::-webkit-scrollbar-thumb,
+.ai-reasoning-text::-webkit-scrollbar-thumb {
+  background: rgba(102, 126, 234, 0.5);
+  border-radius: 4px;
+}
+
+.ai-log-modal-content::-webkit-scrollbar-thumb:hover,
+.ai-reasoning-text::-webkit-scrollbar-thumb:hover {
+  background: rgba(102, 126, 234, 0.7);
+}
+

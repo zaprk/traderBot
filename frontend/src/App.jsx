@@ -5,6 +5,7 @@ import TradeLog from './components/TradeLog'
 import Controls from './components/Controls'
 import MarketTiles from './components/MarketTiles'
 import ActivityLog, { addLog } from './components/ActivityLog'
+import AILogs from './components/AILogs'
 import { getBalance, getSymbols, getMetrics, controlBot, getBatchDecisions } from './api'
 import './App.css'
 
@@ -15,6 +16,7 @@ function App() {
   const [botStatus, setBotStatus] = useState('active')
   const [loading, setLoading] = useState(true)
   const [autoTrade, setAutoTrade] = useState(false)
+  const [activeTab, setActiveTab] = useState('dashboard') // 'dashboard', 'trades', 'ai-logs'
 
   useEffect(() => {
     loadInitialData()
@@ -183,8 +185,35 @@ function App() {
         <Balance balance={balance} />
         <ActivityLog />
         <MarketTiles symbols={symbols} />
-        <Dashboard metrics={metrics} />
-        <TradeLog />
+        
+        {/* Tabs Navigation */}
+        <div className="tabs-navigation">
+          <button 
+            className={`tab-button ${activeTab === 'dashboard' ? 'active' : ''}`}
+            onClick={() => setActiveTab('dashboard')}
+          >
+            📊 Dashboard
+          </button>
+          <button 
+            className={`tab-button ${activeTab === 'trades' ? 'active' : ''}`}
+            onClick={() => setActiveTab('trades')}
+          >
+            📈 Trade Log
+          </button>
+          <button 
+            className={`tab-button ${activeTab === 'ai-logs' ? 'active' : ''}`}
+            onClick={() => setActiveTab('ai-logs')}
+          >
+            🧠 AI Reasoning
+          </button>
+        </div>
+
+        {/* Tab Content */}
+        <div className="tab-content">
+          {activeTab === 'dashboard' && <Dashboard metrics={metrics} />}
+          {activeTab === 'trades' && <TradeLog />}
+          {activeTab === 'ai-logs' && <AILogs />}
+        </div>
       </div>
     </div>
   )
