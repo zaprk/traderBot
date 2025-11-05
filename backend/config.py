@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     
     # Trading Mode
     paper_mode: bool = True
+    initial_balance: float = 10000.0
     
     # Risk Management
     risk_per_trade: float = 0.02
