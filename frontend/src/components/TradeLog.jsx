@@ -12,8 +12,8 @@ function TradeLog() {
   useEffect(() => {
     loadTrades()
     
-    // Refresh every 30 seconds
-    const interval = setInterval(loadTrades, 30000)
+    // Refresh every 10 seconds for live updates
+    const interval = setInterval(loadTrades, 10000)
     return () => clearInterval(interval)
   }, [])
 
