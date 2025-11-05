@@ -289,6 +289,50 @@ async def get_batch_decisions(request: BatchDecisionRequest):
         # Log full response including reasoning
         log_llm_reasoning(request.symbols, response)
         
+        # Auto-execute trades with high confidence (>0.7)
+        executed_trades = []
+        if response.get('decisions'):
+            for symbol, decision in response['decisions'].items():
+                if decision['action'] in ['long', 'short'] and decision.get('confidence', 0) > 0.7:
+                    try:
+                        # Calculate position size
+                        units = trade_manager.compute_position_size(
+                            balance_usd=balance,
+                            risk_pct=settings.risk_per_trade,
+                            entry=decision['entry_price'],
+                            stop=decision['stop_loss']
+                        )
+                        
+                        # Execute trade
+                        result = trade_manager.execute_trade(
+                            symbol=symbol,
+                            side=decision['action'],
+                            entry=decision['entry_price'],
+                            stop=decision['stop_loss'],
+                            take_profit=decision['take_profit'],
+                            units=units,
+                            balance=balance,
+                            llm_response=decision
+                        )
+                        
+                        # Save to database if executed
+                        if result['executed']:
+                            position = result['position']
+                            trade_id = db.add_trade(position)
+                            log_trade_to_csv(position)
+                            executed_trades.append({
+                                'symbol': symbol,
+                                'trade_id': trade_id,
+                                'action': decision['action'],
+                                'confidence': decision['confidence']
+                            })
+                            logger.info(f"Auto-executed {decision['action'].upper()} on {symbol} (confidence: {decision['confidence']})")
+                    except Exception as e:
+                        logger.error(f"Failed to auto-execute trade for {symbol}: {e}")
+        
+        # Add execution info to response
+        response['auto_executed'] = executed_trades
+        
         return response
     
     except Exception as e:
