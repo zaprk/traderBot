@@ -520,6 +520,10 @@ async def get_ai_logs(days: int = 7):
         logs = []
         today = datetime.utcnow()
         
+        # Ensure logs directory exists
+        if not os.path.exists(LOG_DIR):
+            return {"logs": [], "count": 0}
+        
         # Check logs for the past N days
         for day_offset in range(days):
             date = today - timedelta(days=day_offset)
@@ -528,13 +532,17 @@ async def get_ai_logs(days: int = 7):
             
             if os.path.exists(log_file):
                 try:
-                    with open(log_file, 'r') as f:
+                    with open(log_file, 'r', encoding='utf-8') as f:
                         for line in f:
                             if line.strip():
-                                entry = json.loads(line)
-                                logs.append(entry)
+                                try:
+                                    entry = json.loads(line)
+                                    logs.append(entry)
+                                except json.JSONDecodeError:
+                                    continue
                 except Exception as e:
                     logger.error(f"Error reading log file {log_file}: {e}")
+                    continue
         
         # Sort by timestamp descending (newest first)
         logs.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
@@ -545,7 +553,7 @@ async def get_ai_logs(days: int = 7):
         }
     except Exception as e:
         logger.error(f"Error fetching AI logs: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        return {"logs": [], "count": 0, "error": str(e)}
 
 
 if __name__ == "__main__":
