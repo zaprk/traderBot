@@ -15,17 +15,21 @@ function App() {
   const [metrics, setMetrics] = useState(null)
   const [botStatus, setBotStatus] = useState('active')
   const [loading, setLoading] = useState(true)
-  const [autoTrade, setAutoTrade] = useState(false)
+  const [autoTrade, setAutoTrade] = useState(() => {
+    // Load from localStorage
+    const saved = localStorage.getItem('autoTrade')
+    return saved === 'true'
+  })
   const [activeTab, setActiveTab] = useState('dashboard') // 'dashboard', 'trades', 'ai-logs'
 
   useEffect(() => {
     loadInitialData()
     addLog('Application started', 'success')
     
-    // Refresh data every 30 seconds
+    // Refresh data every 10 seconds for live updates
     const interval = setInterval(() => {
       loadInitialData()
-    }, 30000)
+    }, 10000)
     
     return () => clearInterval(interval)
   }, [])
@@ -133,10 +137,13 @@ function App() {
         return
       }
       addLog('Auto-trading enabled', 'success')
+      localStorage.setItem('autoTrade', 'true')
+      setAutoTrade(true)
     } else {
       addLog('Auto-trading disabled', 'warning')
+      localStorage.setItem('autoTrade', 'false')
+      setAutoTrade(false)
     }
-    setAutoTrade(!autoTrade)
   }
 
   if (loading) {
