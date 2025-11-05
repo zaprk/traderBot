@@ -1,0 +1,140 @@
+.dashboard-card h2 {
+  font-size: 1.75rem;
+  font-weight: 700;
+  margin-bottom: 1.5rem;
+}
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1.5rem;
+}
+
+.metric-card {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 1.5rem;
+  transition: all 0.3s ease;
+}
+
+.metric-card:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+.metric-label {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.7);
+  margin-bottom: 0.75rem;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.metric-value {
+  font-size: 2.5rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.metric-value.positive { color: #10b981; }
+.metric-value.negative { color: #ef4444; }
+
+.chart-container {
+  margin-top: 2rem;
+  padding: 2rem;
+  background: rgba(15, 23, 42, 0.4);
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+.chart-container h3 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-bottom: 1.5rem;
+  color: #f1f5f9;
+}
+
+.metrics-history {
+  margin-top: 2rem;
+}
+
+.metrics-history h3 {
+  font-size: 1.125rem;
+  font-weight: 700;
+  margin-bottom: 1rem;
+  color: #f1f5f9;
+}
+
+.metrics-table-container {
+  overflow-x: auto;
+  background: rgba(15, 23, 42, 0.4);
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+.metrics-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.metrics-table th,
+.metrics-table td {
+  padding: 1rem;
+  text-align: right;
+  font-size: 0.875rem;
+}
+
+.metrics-table th:first-child,
+.metrics-table td:first-child {
+  text-align: left;
+}
+
+.metrics-table th {
+  background: rgba(30, 41, 59, 0.6);
+  color: #cbd5e1;
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  position: sticky;
+  top: 0;
+}
+
+.metrics-table th:first-child {
+  border-top-left-radius: 12px;
+}
+
+.metrics-table th:last-child {
+  border-top-right-radius: 12px;
+}
+
+.metrics-table tbody tr {
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+  transition: all 0.2s ease;
+}
+
+.metrics-table tbody tr:hover {
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.metrics-table tbody tr:last-child {
+  border-bottom: none;
+}
+
+.metrics-table td {
+  color: #e2e8f0;
+}
+
+.metrics-table td.positive { 
+  color: #10b981;
+  font-weight: 600;
+}
+
+.metrics-table td.negative { 
+  color: #ef4444;
+  font-weight: 600;
+}
+

@@ -1,0 +1,108 @@
+.balance-card {
+  background: linear-gradient(135deg, #1e40af 0%, #7c3aed 50%, #db2777 100%);
+  border-radius: 20px;
+  padding: 2.5rem;
+  margin-bottom: 1.5rem;
+  box-shadow: 0 10px 40px rgba(30, 64, 175, 0.3);
+  position: relative;
+  overflow: hidden;
+}
+
+.balance-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.1), transparent);
+  pointer-events: none;
+}
+
+.balance-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2rem;
+  position: relative;
+}
+
+.balance-main h2 {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.9);
+  margin-bottom: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.balance-main .amount {
+  font-size: 3.5rem;
+  font-weight: 900;
+  color: #fff;
+  margin-bottom: 0.5rem;
+  letter-spacing: -0.02em;
+}
+
+.balance-main .currency {
+  font-size: 0.9375rem;
+  color: rgba(255, 255, 255, 0.8);
+  font-weight: 600;
+}
+
+.balance-equity {
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 16px;
+  padding: 1.75rem 2rem;
+  text-align: right;
+  backdrop-filter: blur(10px);
+}
+
+.balance-equity h3 {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.9);
+  margin-bottom: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.balance-equity .equity-amount {
+  font-size: 2.25rem;
+  font-weight: 900;
+  color: #fff;
+  letter-spacing: -0.02em;
+}
+
+.balance-loading {
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.4), rgba(15, 23, 42, 0.4));
+  border-radius: 20px;
+  padding: 2.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.balance-skeleton {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.balance-skeleton-line {
+  height: 24px;
+  background: rgba(148, 163, 184, 0.2);
+  border-radius: 6px;
+  margin-bottom: 1.25rem;
+}
+
+.balance-skeleton-line.small { width: 140px; }
+.balance-skeleton-line.large { width: 280px; }
+
+@media (max-width: 768px) {
+  .balance-main .amount {
+    font-size: 2.5rem;
+  }
+  .balance-equity .equity-amount {
+    font-size: 1.75rem;
+  }
+}
+

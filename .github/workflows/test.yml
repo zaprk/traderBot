@@ -1,0 +1,59 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Install dependencies
+      run: |
+        cd backend
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Run tests
+      run: |
+        cd backend
+        pytest tests/ -v
+    
+    - name: Check code style
+      run: |
+        cd backend
+        pip install flake8
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+
+  frontend-build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Node
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+    
+    - name: Install dependencies
+      run: |
+        cd frontend
+        npm install
+    
+    - name: Build
+      run: |
+        cd frontend
+        npm run build
+
+

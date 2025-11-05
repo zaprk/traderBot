@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# Database
+*.db
+trades.db
+
+# Logs
+logs/*.csv
+logs/*.jsonl
+logs/*.txt
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Tests
+tests/
+__pycache__/
+
+# Documentation
+README.md
+ROADMAP.md
+SETUP.md
+
