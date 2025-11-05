@@ -8,9 +8,13 @@ from datetime import datetime
 from typing import Dict, List
 import json
 
-# Configure logging
-LOG_DIR = "logs"
-CSV_FILE = "logs/trades.csv"
+# Configure logging - use persistent storage on Fly.io
+if os.path.exists('/app/data'):
+    LOG_DIR = "/app/data/logs"
+    CSV_FILE = "/app/data/logs/trades.csv"
+else:
+    LOG_DIR = "logs"
+    CSV_FILE = "logs/trades.csv"
 
 if not os.path.exists(LOG_DIR):
     os.makedirs(LOG_DIR)
