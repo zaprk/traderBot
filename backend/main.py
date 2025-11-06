@@ -113,6 +113,10 @@ def initialize_system():
 # Background task for auto-trading
 async def auto_trading_loop():
     """Background task that runs hourly auto-trading analysis"""
+    # Wait for system to initialize
+    await asyncio.sleep(10)
+    logger.info("Auto-trading scheduler started")
+    
     while True:
         try:
             await asyncio.sleep(3600)  # Wait 1 hour
@@ -126,6 +130,11 @@ async def auto_trading_loop():
             # Check if bot is paused
             if bot_paused:
                 logger.info("Bot paused, skipping auto-trading")
+                continue
+            
+            # Check if exchange and llm_agent are initialized
+            if not exchange or not llm_agent:
+                logger.error("Exchange or LLM agent not initialized, skipping auto-trading")
                 continue
             
             logger.info("Starting hourly auto-trading analysis...")
