@@ -29,11 +29,15 @@ function MarketTile({ symbol }) {
   }
 
   const handleGetDecision = async () => {
+    console.log('🎯 Getting AI decision for:', symbol)
     setGettingDecision(true)
     try {
       const llmDecision = await getDecision(symbol)
+      console.log('🎯 AI Decision Response:', llmDecision)
+      console.log('🎯 Decision Data:', llmDecision.decision)
       setDecision(llmDecision)
     } catch (error) {
+      console.error('❌ Error getting AI decision:', error)
       alert('Error getting decision: ' + error.message)
     }
     setGettingDecision(false)
