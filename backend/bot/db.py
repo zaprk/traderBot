@@ -7,6 +7,7 @@ from sqlalchemy.orm import sessionmaker
 from datetime import datetime
 import json
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +112,13 @@ class SystemSettings(Base):
 class Database:
     """Database manager"""
     
-    def __init__(self, db_url: str = "sqlite:///trades.db"):
+    def __init__(self, db_url: str = None):
+        # Use persistent storage when deployed
+        if db_url is None:
+            db_dir = os.environ.get('DB_DIR', '/app/data')
+            os.makedirs(db_dir, exist_ok=True)
+            db_url = f"sqlite:///{db_dir}/trades.db"
+        
         self.engine = create_engine(db_url, echo=False)
         self.SessionLocal = sessionmaker(bind=self.engine)
         self.create_tables()
