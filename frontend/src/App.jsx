@@ -6,7 +6,7 @@ import Controls from './components/Controls'
 import MarketTiles from './components/MarketTiles'
 import ActivityLog, { addLog } from './components/ActivityLog'
 import AILogs from './components/AILogs'
-import { getBalance, getSymbols, getMetrics, controlBot, getBatchDecisions } from './api'
+import { getBalance, getSymbols, getMetrics, controlBot, getBatchDecisions, getAutoTrading, setAutoTrading } from './api'
 import './App.css'
 
 function App() {
