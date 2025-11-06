@@ -178,19 +178,24 @@ def log_decision(symbol: str, decision: Dict, indicators: Dict):
         logging.error(f"Error logging decision: {e}")
 
 
-def log_llm_reasoning(symbols: List[str], full_response: Dict):
+def log_llm_reasoning(symbol, decision: Dict, full_response: Dict):
     """
     Log full LLM response including reasoning to separate file
     
     Args:
-        symbols: List of symbols analyzed
+        symbol: Symbol analyzed (str or list)
+        decision: Decision dict
         full_response: Complete response from LLM including _raw_response
     """
     timestamp = datetime.utcnow().isoformat()
     
+    # Handle both single symbol and list of symbols
+    symbols = [symbol] if isinstance(symbol, str) else symbol
+    
     log_entry = {
         'timestamp': timestamp,
         'symbols': symbols,
+        'decision': decision,
         'response': full_response
     }
     
