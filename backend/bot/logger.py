@@ -199,11 +199,11 @@ def log_llm_reasoning(symbol, decision: Dict, full_response: Dict):
         'response': full_response
     }
     
-    # Log JSON response
+    # Log JSON response (single line for JSONL format)
     filename = f"{LOG_DIR}/llm_reasoning_{datetime.utcnow().strftime('%Y%m%d')}.jsonl"
     try:
         with open(filename, 'a') as f:
-            f.write(json.dumps(log_entry, indent=2) + '\n')
+            f.write(json.dumps(log_entry) + '\n')
     except Exception as e:
         logging.error(f"Error logging LLM reasoning (JSON): {e}")
     
