@@ -406,8 +406,11 @@ async def get_decision(request: DecisionRequest):
             "reason": "No decision found for symbol"
         })
         
-        # Log decision
+        # Log decision (CSV)
         log_decision(request.symbol, decision, indicators_multi_tf)
+        
+        # Log full LLM reasoning (for AI Logs tab)
+        log_llm_reasoning(request.symbol, decision, response)
         
         # Return in expected format
         return {
