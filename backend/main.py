@@ -135,9 +135,19 @@ async def get_balance():
     """Get account balance"""
     try:
         if settings.paper_mode:
-            # Return simulated balance from config
+            # Calculate balance from trades in database
+            trades = db.get_all_trades(limit=10000)  # Get all trades
+            
+            # Start with initial balance
+            balance = float(settings.initial_balance)
+            
+            # Add/subtract PnL from closed trades
+            for trade in trades:
+                if trade['status'] == 'closed' and trade['pnl_usd'] is not None:
+                    balance += trade['pnl_usd']
+            
             return {
-                "balance": float(settings.initial_balance),
+                "balance": balance,
                 "currency": settings.base_currency,
                 "paper_mode": True
             }
