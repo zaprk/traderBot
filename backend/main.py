@@ -110,6 +110,62 @@ def initialize_system():
     logger.info("Trade manager initialized")
 
 
+# Background task for monitoring positions (checks SL/TP)
+async def position_monitor_loop():
+    """Monitor open positions every 30 seconds for stop-loss/take-profit"""
+    # Wait for system to initialize
+    await asyncio.sleep(15)
+    logger.info("Position monitor started - checking every 30 seconds")
+    
+    while True:
+        try:
+            await asyncio.sleep(30)  # Check every 30 seconds
+            
+            # Check if exchange and trade_manager are initialized
+            if not exchange or not trade_manager:
+                continue
+            
+            # Get all open positions from database
+            open_positions_dict = trade_manager.get_open_positions()
+            
+            if not open_positions_dict:
+                continue  # No positions to monitor
+            
+            # Fetch current prices for all open positions
+            current_prices = {}
+            for position_id, position in open_positions_dict.items():
+                symbol = position['symbol']
+                try:
+                    formatted_symbol = format_symbol(symbol)
+                    ticker = exchange.fetch_ticker(formatted_symbol)
+                    current_prices[symbol] = ticker['last']
+                except Exception as e:
+                    logger.error(f"Error fetching price for {symbol}: {e}")
+            
+            # Monitor positions and close if SL/TP hit
+            closed_positions = trade_manager.monitor_positions(current_prices)
+            
+            # Update database for closed positions
+            for closed_pos in closed_positions:
+                try:
+                    db.update_trade(closed_pos['id'], {
+                        'status': 'closed',
+                        'exit_price': closed_pos['exit_price'],
+                        'exit_time': closed_pos['exit_time'],
+                        'pnl_usd': closed_pos['pnl_usd'],
+                        'pnl_pct': closed_pos['pnl_pct'],
+                        'exit_reason': closed_pos['exit_reason']
+                    })
+                    log_trade_to_csv(closed_pos)
+                    logger.info(f"✅ Position closed: {closed_pos['symbol']} {closed_pos['exit_reason']} - P&L: ${closed_pos['pnl_usd']:.2f}")
+                except Exception as e:
+                    logger.error(f"Error updating closed position: {e}")
+                    
+        except Exception as e:
+            logger.error(f"Error in position monitor loop: {e}")
+            await asyncio.sleep(30)
+
+
 # Background task for auto-trading
 async def auto_trading_loop():
     """Background task that runs hourly auto-trading analysis"""
@@ -231,8 +287,9 @@ async def startup_event():
     if db.get_setting('auto_trading') is None:
         db.set_setting('auto_trading', 'false')
     
-    # Start background auto-trading task
+    # Start background tasks
     asyncio.create_task(auto_trading_loop())
+    asyncio.create_task(position_monitor_loop())
     
     logger.info("DeepSeek Trader API started successfully")
 
