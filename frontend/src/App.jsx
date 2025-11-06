@@ -15,11 +15,7 @@ function App() {
   const [metrics, setMetrics] = useState(null)
   const [botStatus, setBotStatus] = useState('active')
   const [loading, setLoading] = useState(true)
-  const [autoTrade, setAutoTrade] = useState(() => {
-    // Load from localStorage
-    const saved = localStorage.getItem('autoTrade')
-    return saved === 'true'
-  })
+  const [autoTrade, setAutoTrade] = useState(false)
   const [activeTab, setActiveTab] = useState('dashboard') // 'dashboard', 'trades', 'ai-logs'
 
   useEffect(() => {
@@ -34,78 +30,23 @@ function App() {
     return () => clearInterval(interval)
   }, [])
 
-  // Auto-trading loop - runs every hour
-  useEffect(() => {
-    if (!autoTrade || botStatus !== 'active') return
-
-    addLog('Auto-trading enabled - will analyze markets every hour', 'success')
-    
-    // Store symbols in a ref so we don't retrigger when they change
-    const currentSymbols = [...symbols]
-    
-    const analyzeMarkets = async () => {
-      if (botStatus !== 'active') return
-      
-      addLog('🤖 Starting automated market analysis (batch mode with reasoning)...', 'info')
-      
-      try {
-        // Call batch API - analyzes all symbols at once!
-        const response = await getBatchDecisions(currentSymbols)
-        
-        // Show reasoning if available
-        if (response._raw_response?.reasoning) {
-          const reasoning = response._raw_response.reasoning
-          const preview = reasoning.substring(0, 200) + (reasoning.length > 200 ? '...' : '')
-          addLog(`🧠 AI Reasoning: ${preview}`, 'info')
-        }
-        
-        // Show summary
-        if (response.summary) {
-          addLog(`📊 Market Overview: ${response.summary}`, 'info')
-        }
-        
-        // Show each decision
-        for (const [symbol, decision] of Object.entries(response.decisions)) {
-          if (decision.action !== 'none') {
-            addLog(
-              `${symbol}: AI recommends ${decision.action.toUpperCase()} ` +
-              `(confidence: ${(decision.confidence * 100).toFixed(0)}%) - ${decision.reason}`,
-              'warning'
-            )
-          } else {
-            addLog(`${symbol}: No trade signal - ${decision.reason}`, 'info')
-          }
-        }
-        
-        addLog('✓ Batch analysis complete. Full reasoning saved to logs/', 'success')
-      } catch (error) {
-        addLog(`Error in batch analysis: ${error.message}`, 'error')
-      }
-    }
-
-    // Run immediately
-    analyzeMarkets()
-
-    // Then run every hour
-    const interval = setInterval(analyzeMarkets, 60 * 60 * 1000) // 1 hour
-
-    return () => {
-      clearInterval(interval)
-      addLog('Auto-trading stopped', 'warning')
-    }
-  }, [autoTrade, botStatus]) // Removed symbols from dependencies!
+  // Auto-trading is now handled by the backend!
+  // The backend scheduler checks the database every hour and auto-executes trades.
+  // Frontend just displays the current state.
 
   const loadInitialData = async () => {
     try {
-      const [balanceData, symbolsData, metricsData] = await Promise.all([
+      const [balanceData, symbolsData, metricsData, autoTradingData] = await Promise.all([
         getBalance(),
         getSymbols(),
-        getMetrics()
+        getMetrics(),
+        getAutoTrading()
       ])
       
       setBalance(balanceData)
       setSymbols(symbolsData.symbols || [])
       setMetrics(metricsData)
+      setAutoTrade(autoTradingData.enabled)
       setLoading(false)
     } catch (error) {
       console.error('Error loading data:', error)
@@ -130,19 +71,27 @@ function App() {
     }
   }
 
-  const toggleAutoTrade = () => {
+  const toggleAutoTrade = async () => {
     if (!autoTrade) {
       if (botStatus !== 'active') {
         addLog('Cannot enable auto-trading: bot is not active', 'error')
         return
       }
-      addLog('Auto-trading enabled', 'success')
-      localStorage.setItem('autoTrade', 'true')
-      setAutoTrade(true)
+      try {
+        await setAutoTrading(true)
+        setAutoTrade(true)
+        addLog('✅ Auto-trading enabled - backend will analyze markets every hour', 'success')
+      } catch (error) {
+        addLog(`Error enabling auto-trading: ${error.message}`, 'error')
+      }
     } else {
-      addLog('Auto-trading disabled', 'warning')
-      localStorage.setItem('autoTrade', 'false')
-      setAutoTrade(false)
+      try {
+        await setAutoTrading(false)
+        setAutoTrade(false)
+        addLog('⏸️ Auto-trading disabled', 'warning')
+      } catch (error) {
+        addLog(`Error disabling auto-trading: ${error.message}`, 'error')
+      }
     }
   }
 

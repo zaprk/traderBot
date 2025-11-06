@@ -9,6 +9,7 @@ from typing import List, Dict, Optional
 import logging
 import json
 import os
+import asyncio
 from datetime import datetime, timedelta
 
 from bot.market import create_exchange, fetch_multi_timeframes, get_current_price, format_symbol
@@ -109,11 +110,121 @@ def initialize_system():
     logger.info("Trade manager initialized")
 
 
+# Background task for auto-trading
+async def auto_trading_loop():
+    """Background task that runs hourly auto-trading analysis"""
+    while True:
+        try:
+            await asyncio.sleep(3600)  # Wait 1 hour
+            
+            # Check if auto-trading is enabled
+            auto_trading = db.get_setting('auto_trading')
+            if auto_trading != 'true':
+                logger.info("Auto-trading disabled, skipping analysis")
+                continue
+            
+            # Check if bot is paused
+            if bot_paused:
+                logger.info("Bot paused, skipping auto-trading")
+                continue
+            
+            logger.info("Starting hourly auto-trading analysis...")
+            
+            # Get all symbols
+            coins = settings.get_coins_list()
+            symbols = [f"{coin}/USDT" for coin in coins]
+            
+            # Fetch market data for all symbols
+            market_data_batch = {}
+            for symbol in symbols:
+                try:
+                    formatted = format_symbol(symbol)
+                    data = fetch_multi_timeframes(exchange, formatted)
+                    if data:
+                        indicators_5m = calculate_all_indicators(data['5m'])
+                        indicators_15m = calculate_all_indicators(data['15m'])
+                        indicators_1h = calculate_all_indicators(data['1h'])
+                        
+                        market_data_batch[symbol] = {
+                            'indicators': {
+                                '5m': indicators_5m,
+                                '15m': indicators_15m,
+                                '1h': indicators_1h
+                            },
+                            'current_price': get_current_price(exchange, formatted)
+                        }
+                except Exception as e:
+                    logger.error(f"Error fetching data for {symbol}: {e}")
+            
+            if not market_data_batch:
+                logger.error("No market data available for auto-trading")
+                continue
+            
+            # Get batch decisions from LLM
+            try:
+                decisions = llm_agent.get_batch_decisions(market_data_batch)
+                logger.info(f"Auto-trading: Received decisions for {len(decisions)} symbols")
+                
+                # Execute high-confidence trades
+                for symbol, decision in decisions.items():
+                    action = decision.get('action')
+                    confidence = decision.get('confidence', 0)
+                    
+                    if action in ['long', 'short'] and confidence > 0.7:
+                        try:
+                            # Get balance
+                            balance_data = await get_balance()
+                            balance = balance_data['balance']
+                            
+                            # Compute position size
+                            units = trade_manager.compute_position_size(
+                                balance_usd=balance,
+                                risk_pct=settings.risk_per_trade,
+                                entry=decision['entry_price'],
+                                stop=decision['stop_loss']
+                            )
+                            
+                            # Execute trade
+                            result = trade_manager.execute_trade(
+                                symbol=symbol,
+                                side=action,
+                                entry=decision['entry_price'],
+                                stop=decision['stop_loss'],
+                                take_profit=decision['take_profit'],
+                                units=units,
+                                balance=balance,
+                                llm_response=decision
+                            )
+                            
+                            if result['executed']:
+                                position = result['position']
+                                trade_id = db.add_trade(position)
+                                log_trade_to_csv(position)
+                                logger.info(f"Auto-trade executed: {symbol} {action} @ {decision['entry_price']}, confidence={confidence}")
+                        except Exception as e:
+                            logger.error(f"Error executing auto-trade for {symbol}: {e}")
+                
+            except Exception as e:
+                logger.error(f"Error in auto-trading batch analysis: {e}")
+                
+        except Exception as e:
+            logger.error(f"Error in auto-trading loop: {e}")
+            await asyncio.sleep(60)  # Wait 1 minute before retry on error
+
+
 # Startup event
 @app.on_event("startup")
 async def startup_event():
     """Run on application startup"""
     initialize_system()
+    
+    # Initialize auto_trading setting if not exists
+    if db.get_setting('auto_trading') is None:
+        db.set_setting('auto_trading', 'false')
+    
+    # Start background auto-trading task
+    asyncio.create_task(auto_trading_loop())
+    
     logger.info("DeepSeek Trader API started successfully")
 
 
@@ -161,6 +272,37 @@ async def get_balance():
             }
     except Exception as e:
         logger.error(f"Error fetching balance: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Get/Set auto-trading state
+@app.get("/auto-trading")
+async def get_auto_trading():
+    """Get auto-trading state"""
+    try:
+        auto_trading = db.get_setting('auto_trading')
+        return {
+            "enabled": auto_trading == 'true',
+            "auto_trading": auto_trading == 'true'  # backward compat
+        }
+    except Exception as e:
+        logger.error(f"Error getting auto-trading state: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/auto-trading")
+async def set_auto_trading(enabled: bool = True):
+    """Enable or disable auto-trading"""
+    try:
+        db.set_setting('auto_trading', 'true' if enabled else 'false')
+        logger.info(f"Auto-trading {'enabled' if enabled else 'disabled'}")
+        return {
+            "success": True,
+            "enabled": enabled,
+            "message": f"Auto-trading {'enabled' if enabled else 'disabled'}"
+        }
+    except Exception as e:
+        logger.error(f"Error setting auto-trading state: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

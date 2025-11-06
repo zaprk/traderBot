@@ -92,5 +92,18 @@ export const getAILogs = async (days = 7) => {
   return response.data
 }
 
+// Auto-trading control
+export const getAutoTrading = async () => {
+  const response = await api.get('/auto-trading')
+  return response.data
+}
+
+export const setAutoTrading = async (enabled) => {
+  const response = await api.post('/auto-trading', null, {
+    params: { enabled }
+  })
+  return response.data
+}
+
 export default api
 
