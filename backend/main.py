@@ -385,20 +385,36 @@ async def get_decision(request: DecisionRequest):
                 indicators_multi_tf[tf] = calculate_all_indicators(df)
         
         # Get LLM decision
-        decision = llm_agent.get_decision(
+        response = llm_agent.get_decision(
             symbol=request.symbol,
             balance=balance,
             risk_pct=settings.risk_per_trade,
             indicators_multi_tf=indicators_multi_tf
         )
         
-        if not decision:
+        if not response:
             raise HTTPException(status_code=500, detail="Failed to get LLM decision")
+        
+        # Extract single decision from batch format
+        decisions = response.get('decisions', {})
+        decision = decisions.get(request.symbol, {
+            "action": "none",
+            "entry_price": None,
+            "stop_loss": None,
+            "take_profit": None,
+            "confidence": 0,
+            "reason": "No decision found for symbol"
+        })
         
         # Log decision
         log_decision(request.symbol, decision, indicators_multi_tf)
         
-        return decision
+        # Return in expected format
+        return {
+            "decision": decision,
+            "_raw_response": response.get('_raw_response'),
+            "summary": response.get('summary')
+        }
     
     except Exception as e:
         logger.error(f"Error getting decision: {e}")
