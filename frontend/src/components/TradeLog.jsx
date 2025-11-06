@@ -84,7 +84,7 @@ function TradeLog() {
           </div>
           {Object.entries(openPositions).map(([id, pos]) => (
             <div key={id} className="position-item">
-              {pos.symbol} - {pos.side.toUpperCase()} @ ${pos.entry_price}
+              {pos.symbol} - {pos.side?.toUpperCase() || 'N/A'} @ ${pos.entry_price}
             </div>
           ))}
         </div>
@@ -120,7 +120,7 @@ function TradeLog() {
                   <td className="symbol-cell">{trade.symbol}</td>
                   <td className="side-cell">
                     <span className={`side-badge ${trade.side}`}>
-                      {trade.side.toUpperCase()}
+                      {trade.side?.toUpperCase() || 'N/A'}
                     </span>
                   </td>
                   <td className="price-cell">${trade.entry_price.toFixed(2)}</td>
@@ -196,7 +196,7 @@ function TradeLog() {
               <div className="detail-grid">
                 <div className="detail-item">
                   <div className="detail-label">Side</div>
-                  <div className="detail-value">{selectedTrade.side.toUpperCase()}</div>
+                  <div className="detail-value">{selectedTrade.side?.toUpperCase() || 'N/A'}</div>
                 </div>
                 <div className="detail-item">
                   <div className="detail-label">Status</div>

@@ -156,7 +156,7 @@ function MarketTile({ symbol }) {
                 <span className="decision-icon">🎯</span>
                 <div>
                   AI Recommendation: <span className={`decision-action ${decision.action}`}>
-                    {decision.action.toUpperCase()}
+                    {decision.action?.toUpperCase() || 'NONE'}
                   </span>
                 </div>
               </div>

@@ -149,7 +149,7 @@ export default function AILogs() {
                       <div key={symbol} className={`ai-decision-card ${decision.action}`}>
                         <div className="ai-decision-symbol">{symbol}</div>
                         <div className="ai-decision-action">
-                          Action: <span className={`action-${decision.action}`}>{decision.action.toUpperCase()}</span>
+                          Action: <span className={`action-${decision.action}`}>{decision.action?.toUpperCase() || 'N/A'}</span>
                         </div>
                         {decision.confidence && (
                           <div className="ai-decision-confidence">
