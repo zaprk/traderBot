@@ -232,11 +232,24 @@ async def auto_trading_loop():
                 logger.error("No market data available for auto-trading")
                 continue
             
+            # Get current balance for decision-making
+            balance_data = await get_balance()
+            balance = balance_data['balance']
+            logger.info(f"💰 Current balance: ${balance:.2f}")
+            
             # Get batch decisions from LLM
             try:
                 logger.info("🧠 Calling DeepSeek AI for batch analysis...")
-                decisions = llm_agent.get_batch_decisions(market_data_batch)
-                logger.info(f"✅ Auto-trading: Received decisions for {len(decisions)} symbols")
+                decisions = llm_agent.get_batch_decisions(
+                    symbols_data=market_data_batch,
+                    balance=balance,
+                    risk_pct=settings.risk_per_trade
+                )
+                logger.info(f"✅ Auto-trading: Received decisions for {len(decisions) if decisions else 0} symbols")
+                
+                if not decisions:
+                    logger.warning("No decisions returned from AI")
+                    continue
                 
                 # Log AI reasoning for persistence
                 log_llm_reasoning(
