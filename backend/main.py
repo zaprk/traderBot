@@ -175,12 +175,11 @@ async def auto_trading_loop():
     
     while True:
         try:
-            await asyncio.sleep(3600)  # Wait 1 hour
-            
-            # Check if auto-trading is enabled
+            # Check if auto-trading is enabled (check BEFORE sleep so it runs immediately when enabled)
             auto_trading = db.get_setting('auto_trading')
             if auto_trading != 'true':
                 logger.info("Auto-trading disabled, skipping analysis")
+                await asyncio.sleep(300)  # Check every 5 minutes if disabled
                 continue
             
             # Check if bot is paused
@@ -193,11 +192,12 @@ async def auto_trading_loop():
                 logger.error("Exchange or LLM agent not initialized, skipping auto-trading")
                 continue
             
-            logger.info("Starting hourly auto-trading analysis...")
+            logger.info("🤖 AUTO-TRADING: Starting hourly analysis...")
             
             # Get all symbols
             coins = settings.get_coins_list()
             symbols = [f"{coin}/USDT" for coin in coins]
+            logger.info(f"📊 Analyzing {len(symbols)} symbols: {symbols}")
             
             # Fetch market data for all symbols
             market_data_batch = {}
@@ -227,15 +227,27 @@ async def auto_trading_loop():
             
             # Get batch decisions from LLM
             try:
+                logger.info("🧠 Calling DeepSeek AI for batch analysis...")
                 decisions = llm_agent.get_batch_decisions(market_data_batch)
-                logger.info(f"Auto-trading: Received decisions for {len(decisions)} symbols")
+                logger.info(f"✅ Auto-trading: Received decisions for {len(decisions)} symbols")
+                
+                # Log AI reasoning for persistence
+                log_llm_reasoning(
+                    symbol=list(market_data_batch.keys()),
+                    decision=decisions,
+                    full_response=decisions  # Full response for logging
+                )
+                logger.info("💾 AI reasoning logged to persistent storage")
                 
                 # Execute high-confidence trades
+                high_confidence_count = 0
                 for symbol, decision in decisions.items():
                     action = decision.get('action')
                     confidence = decision.get('confidence', 0)
                     
                     if action in ['long', 'short'] and confidence > 0.7:
+                        high_confidence_count += 1
+                        logger.info(f"🎯 High confidence trade opportunity: {symbol} {action.upper()} (confidence={confidence})")
                         try:
                             # Get balance
                             balance_data = await get_balance()
@@ -265,16 +277,21 @@ async def auto_trading_loop():
                                 position = result['position']
                                 trade_id = db.add_trade(position)
                                 log_trade_to_csv(position)
-                                logger.info(f"Auto-trade executed: {symbol} {action} @ {decision['entry_price']}, confidence={confidence}")
+                                logger.info(f"✅ AUTO-TRADE EXECUTED: {symbol} {action.upper()} @ ${decision['entry_price']}, SL=${decision['stop_loss']}, TP=${decision['take_profit']}, confidence={confidence}")
                         except Exception as e:
                             logger.error(f"Error executing auto-trade for {symbol}: {e}")
                 
+                logger.info(f"📈 Auto-trading cycle complete: Found {high_confidence_count} high-confidence opportunities")
+                
             except Exception as e:
-                logger.error(f"Error in auto-trading batch analysis: {e}")
+                logger.error(f"Error in auto-trading batch analysis: {e}", exc_info=True)
                 
         except Exception as e:
-            logger.error(f"Error in auto-trading loop: {e}")
-            await asyncio.sleep(60)  # Wait 1 minute before retry on error
+            logger.error(f"Error in auto-trading loop: {e}", exc_info=True)  # Log full traceback
+        
+        # Wait 1 hour before next analysis (at the END of loop)
+        logger.info("Auto-trading: Waiting 1 hour until next analysis...")
+        await asyncio.sleep(3600)
 
 
 # Startup event
