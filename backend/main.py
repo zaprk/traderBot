@@ -46,9 +46,7 @@ exchange = None
 llm_agent = None
 trade_manager = None
 bot_paused = False
-
-# Event to signal auto-trading state changes
-auto_trading_event = asyncio.Event()
+auto_trading_event = None  # Will be initialized at startup
 
 
 # Pydantic models for requests
@@ -312,6 +310,12 @@ async def auto_trading_loop():
 @app.on_event("startup")
 async def startup_event():
     """Run on application startup"""
+    global auto_trading_event
+    
+    # Initialize event for auto-trading signaling
+    auto_trading_event = asyncio.Event()
+    logger.info("Auto-trading event initialized")
+    
     initialize_system()
     
     # Initialize auto_trading setting if not exists
