@@ -129,9 +129,14 @@ JSON format:
             "max_tokens": 8000  # Large enough for reasoning + complete JSON
         }
         
+        logger.info("=" * 60)
+        logger.info(f"🧠 DEEPSEEK API CALL - Model: {self.model}")
+        logger.info(f"📝 Prompt (first 300 chars): {prompt[:300]}...")
+        logger.info("=" * 60)
+        
         for attempt in range(self.max_retries):
             try:
-                logger.info(f"Calling DeepSeek API (attempt {attempt + 1}/{self.max_retries})")
+                logger.info(f"📡 Calling DeepSeek API (attempt {attempt + 1}/{self.max_retries})...")
                 
                 response = requests.post(
                     self.api_url,
@@ -189,7 +194,13 @@ JSON format:
                 if parsed:
                     # Validate schema
                     if self.validate_response(parsed):
-                        logger.info("Successfully parsed and validated LLM response")
+                        logger.info("=" * 60)
+                        logger.info("✅ DEEPSEEK RESPONSE RECEIVED & VALIDATED")
+                        logger.info(f"Decision: {parsed.get('action', 'N/A')}")
+                        logger.info(f"Confidence: {parsed.get('confidence', 0)}")
+                        if reasoning_content:
+                            logger.info(f"Reasoning length: {len(reasoning_content)} chars")
+                        logger.info("=" * 60)
                         # Add full response metadata
                         parsed['_raw_response'] = {
                             'content': content,

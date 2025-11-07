@@ -13,38 +13,13 @@ const api = axios.create({
   }
 })
 
-// Request interceptor for debugging
-api.interceptors.request.use(
-  config => {
-    console.log('🚀 API Request:', {
-      method: config.method.toUpperCase(),
-      url: config.baseURL + config.url,
-      data: config.data,
-      params: config.params
-    })
-    return config
-  },
-  error => {
-    console.error('❌ API Request Error:', error)
-    return Promise.reject(error)
-  }
-)
-
-// Response interceptor for debugging
+// Response interceptor - only log errors
 api.interceptors.response.use(
-  response => {
-    console.log('✅ API Response:', {
-      status: response.status,
-      url: response.config.url,
-      data: response.data
-    })
-    return response
-  },
+  response => response,
   error => {
-    console.error('❌ API Response Error:', {
+    console.error('❌ API Error:', {
       status: error.response?.status,
       url: error.config?.url,
-      data: error.response?.data,
       message: error.message
     })
     return Promise.reject(error)
@@ -78,13 +53,17 @@ export const getMarketData = async (symbol) => {
 
 // Get LLM decision
 export const getDecision = async (symbol, balance = null) => {
+  console.log('🧠 Calling DeepSeek AI for:', symbol)
   const response = await api.post('/decision', { symbol, balance })
+  console.log('✅ DeepSeek response received for:', symbol, response.data)
   return response.data
 }
 
 // Get batch LLM decisions for multiple symbols
 export const getBatchDecisions = async (symbols, balance = null) => {
+  console.log('🧠 Calling DeepSeek AI (batch) for:', symbols)
   const response = await api.post('/decision/batch', { symbols, balance })
+  console.log('✅ DeepSeek batch response received:', response.data)
   return response.data
 }
 

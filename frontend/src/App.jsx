@@ -72,24 +72,33 @@ function App() {
   }
 
   const toggleAutoTrade = async () => {
+    console.log('🔄 Auto-trading toggle clicked, current state:', autoTrade)
+    
     if (!autoTrade) {
       if (botStatus !== 'active') {
         addLog('Cannot enable auto-trading: bot is not active', 'error')
+        console.error('❌ Auto-trading blocked: bot status is', botStatus)
         return
       }
       try {
-        await setAutoTrading(true)
+        console.log('📡 Sending setAutoTrading(true) to backend...')
+        const result = await setAutoTrading(true)
+        console.log('✅ Backend response:', result)
         setAutoTrade(true)
-        addLog('✅ Auto-trading enabled - backend will analyze markets every hour', 'success')
+        addLog('✅ Auto-trading ENABLED - backend will analyze markets hourly and execute high-confidence trades', 'success')
       } catch (error) {
+        console.error('❌ Error enabling auto-trading:', error)
         addLog(`Error enabling auto-trading: ${error.message}`, 'error')
       }
     } else {
       try {
-        await setAutoTrading(false)
+        console.log('📡 Sending setAutoTrading(false) to backend...')
+        const result = await setAutoTrading(false)
+        console.log('✅ Backend response:', result)
         setAutoTrade(false)
-        addLog('⏸️ Auto-trading disabled', 'warning')
+        addLog('⏸️ Auto-trading DISABLED', 'warning')
       } catch (error) {
+        console.error('❌ Error disabling auto-trading:', error)
         addLog(`Error disabling auto-trading: ${error.message}`, 'error')
       }
     }
