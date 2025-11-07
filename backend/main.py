@@ -203,8 +203,8 @@ async def auto_trading_loop():
             market_data_batch = {}
             for symbol in symbols:
                 try:
-                    formatted = format_symbol(symbol)
-                    data = fetch_multi_timeframes(exchange, formatted)
+                    # Symbol is already formatted (e.g., 'BTC/USDT'), don't format again!
+                    data = fetch_multi_timeframes(exchange, symbol)
                     if data:
                         indicators_5m = calculate_all_indicators(data['5m'])
                         indicators_15m = calculate_all_indicators(data['15m'])
@@ -216,7 +216,7 @@ async def auto_trading_loop():
                                 '15m': indicators_15m,
                                 '1h': indicators_1h
                             },
-                            'current_price': get_current_price(exchange, formatted)
+                            'current_price': get_current_price(exchange, symbol)
                         }
                 except Exception as e:
                     logger.error(f"Error fetching data for {symbol}: {e}")
