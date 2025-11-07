@@ -237,11 +237,17 @@ async def auto_trading_loop():
             balance = balance_data['balance']
             logger.info(f"💰 Current balance: ${balance:.2f}")
             
+            # Extract just the indicators for each symbol (remove 'current_price')
+            symbols_indicators = {
+                symbol: data['indicators']
+                for symbol, data in market_data_batch.items()
+            }
+            
             # Get batch decisions from LLM
             try:
                 logger.info("🧠 Calling DeepSeek AI for batch analysis...")
                 decisions = llm_agent.get_batch_decisions(
-                    symbols_data=market_data_batch,
+                    symbols_data=symbols_indicators,
                     balance=balance,
                     risk_pct=settings.risk_per_trade
                 )
