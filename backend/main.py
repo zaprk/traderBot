@@ -47,6 +47,9 @@ llm_agent = None
 trade_manager = None
 bot_paused = False
 
+# Event to signal auto-trading state changes
+auto_trading_event = asyncio.Event()
+
 
 # Pydantic models for requests
 class BatchDecisionRequest(BaseModel):
@@ -178,8 +181,14 @@ async def auto_trading_loop():
             # Check if auto-trading is enabled (check BEFORE sleep so it runs immediately when enabled)
             auto_trading = db.get_setting('auto_trading')
             if auto_trading != 'true':
-                logger.info("Auto-trading disabled, skipping analysis")
-                await asyncio.sleep(300)  # Check every 5 minutes if disabled
+                logger.info("Auto-trading disabled, waiting for enable signal...")
+                # Wait for auto-trading to be enabled (interruptible sleep)
+                try:
+                    await asyncio.wait_for(auto_trading_event.wait(), timeout=60)
+                    auto_trading_event.clear()  # Reset event
+                    logger.info("🚀 Auto-trading enabled signal received! Starting analysis...")
+                except asyncio.TimeoutError:
+                    pass  # Timeout, check again
                 continue
             
             # Check if bot is paused
@@ -289,9 +298,14 @@ async def auto_trading_loop():
         except Exception as e:
             logger.error(f"Error in auto-trading loop: {e}", exc_info=True)  # Log full traceback
         
-        # Wait 1 hour before next analysis (at the END of loop)
-        logger.info("Auto-trading: Waiting 1 hour until next analysis...")
-        await asyncio.sleep(3600)
+        # Wait 1 hour before next analysis (interruptible)
+        logger.info("⏰ Auto-trading: Waiting 1 hour until next analysis (or until re-enabled)...")
+        try:
+            await asyncio.wait_for(auto_trading_event.wait(), timeout=3600)
+            auto_trading_event.clear()  # Reset event
+            logger.info("🔄 Auto-trading re-triggered early!")
+        except asyncio.TimeoutError:
+            logger.info("⏰ 1 hour passed, starting next analysis cycle...")
 
 
 # Startup event
@@ -379,6 +393,12 @@ async def set_auto_trading(enabled: bool = True):
     try:
         db.set_setting('auto_trading', 'true' if enabled else 'false')
         logger.info(f"Auto-trading {'enabled' if enabled else 'disabled'}")
+        
+        # Signal the background task to wake up immediately if enabled
+        if enabled:
+            logger.info("🚀 Signaling auto-trading loop to start immediately...")
+            auto_trading_event.set()
+        
         return {
             "success": True,
             "enabled": enabled,
