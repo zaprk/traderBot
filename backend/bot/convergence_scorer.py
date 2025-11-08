@@ -126,14 +126,14 @@ class ConvergenceScorer:
         
         # 2. RSI SCORE (25 points)
         rsi_interp = indicators.get('rsi_interpretation', '').lower()
-        rsi = indicators.get('rsi', 50)
+        rsi = indicators.get('rsi') or 50  # Default to 50 if None or missing
         
         if target_direction == 'bullish':
             if 'oversold' in rsi_interp:
                 score += 25  # Bullish reversal opportunity
-            elif rsi > 50:
+            elif rsi and rsi > 50:
                 score += 15  # Momentum aligned
-            elif rsi < 30:
+            elif rsi and rsi < 30:
                 score += 20  # Very oversold
             else:
                 score += 0
@@ -141,9 +141,9 @@ class ConvergenceScorer:
         else:  # bearish
             if 'overbought' in rsi_interp:
                 score += 25  # Bearish reversal opportunity
-            elif rsi < 50:
+            elif rsi and rsi < 50:
                 score += 15  # Momentum aligned
-            elif rsi > 70:
+            elif rsi and rsi > 70:
                 score += 20  # Very overbought
             else:
                 score += 0
