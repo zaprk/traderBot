@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     initial_balance: float = 10000.0
     
     # Risk Management
-    risk_per_trade: float = 0.02
+    risk_per_trade: float = 0.07
     max_daily_loss: float = 0.10
     max_open_positions: int = 3
     max_exposure: float = 0.20
