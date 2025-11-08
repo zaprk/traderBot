@@ -28,7 +28,42 @@ class OrderFlowAnalyzer:
         Returns:
             Dict with liquidity pools, order blocks, key levels, and advanced volume metrics
         """
-        if len(df) < self.lookback_period:
+        try:
+            if df is None or len(df) < self.lookback_period:
+                return {
+                    'liquidity_pools': [],
+                    'order_blocks': [],
+                    'key_levels': [],
+                    'volume_delta': 0,
+                    'volume_profile': {},
+                    'absorption_detected': False,
+                    'current_price': 0,
+                    'nearest_support': None,
+                    'nearest_resistance': None,
+                    'analysis': 'Insufficient data'
+                }
+            
+            # 1. Find liquidity pools (stop hunt zones)
+            liquidity_pools = self._find_liquidity_pools(df)
+            
+            # 2. Identify order blocks (institutional zones) - ENHANCED
+            order_blocks = self._detect_systematic_order_blocks(df)
+            
+            # 3. Detect key support/resistance levels
+            key_levels = self._find_key_levels(df)
+            
+            # 4. Advanced volume metrics
+            volume_delta = self._calculate_volume_delta(df)
+            volume_profile = self._build_volume_profile(df)
+            absorption_detected = self._detect_absorption(df)
+            
+            # 5. Current price context
+            current_price = df.iloc[-1]['close']
+            nearest_support, nearest_resistance = self._find_nearest_levels(
+                current_price, liquidity_pools, order_blocks, key_levels
+            )
+        except Exception as e:
+            logger.error(f"Error in analyze_order_flow: {e}")
             return {
                 'liquidity_pools': [],
                 'order_blocks': [],
@@ -36,28 +71,11 @@ class OrderFlowAnalyzer:
                 'volume_delta': 0,
                 'volume_profile': {},
                 'absorption_detected': False,
-                'analysis': 'Insufficient data'
+                'current_price': 0,
+                'nearest_support': None,
+                'nearest_resistance': None,
+                'analysis': f'Error: {str(e)}'
             }
-        
-        # 1. Find liquidity pools (stop hunt zones)
-        liquidity_pools = self._find_liquidity_pools(df)
-        
-        # 2. Identify order blocks (institutional zones) - ENHANCED
-        order_blocks = self._detect_systematic_order_blocks(df)
-        
-        # 3. Detect key support/resistance levels
-        key_levels = self._find_key_levels(df)
-        
-        # 4. Advanced volume metrics
-        volume_delta = self._calculate_volume_delta(df)
-        volume_profile = self._build_volume_profile(df)
-        absorption_detected = self._detect_absorption(df)
-        
-        # 5. Current price context
-        current_price = df.iloc[-1]['close']
-        nearest_support, nearest_resistance = self._find_nearest_levels(
-            current_price, liquidity_pools, order_blocks, key_levels
-        )
         
         return {
             'liquidity_pools': liquidity_pools,
