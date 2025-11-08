@@ -207,8 +207,8 @@ async def position_monitor_loop():
 # Background task for auto-trading
 async def auto_trading_loop():
     """Background task that runs hourly auto-trading analysis"""
-    # Wait for system to initialize
-    await asyncio.sleep(10)
+    # Wait for system to initialize and Railway health check to pass
+    await asyncio.sleep(30)
     logger.info("Auto-trading scheduler started")
     
     while True:
@@ -322,7 +322,16 @@ async def auto_trading_loop():
             
             if not filtered_symbols:
                 logger.warning("⚠️ No symbols passed quality filters this cycle")
-                # Still update interval based on volatility
+                # Still wait before next cycle (don't hammer the system!)
+                wait_interval = optimal_interval if 'optimal_interval' in locals() else 900  # Default 15 min
+                wait_minutes = wait_interval // 60
+                logger.info(f"⏰ Waiting {wait_minutes} minutes until next analysis...")
+                try:
+                    await asyncio.wait_for(auto_trading_event.wait(), timeout=wait_interval)
+                    auto_trading_event.clear()
+                    logger.info("🔄 Auto-trading re-triggered early!")
+                except asyncio.TimeoutError:
+                    logger.info(f"⏰ {wait_minutes} minutes passed, starting next cycle...")
                 continue
             
             # Extract just the indicators for each symbol (use FILTERED symbols only)
