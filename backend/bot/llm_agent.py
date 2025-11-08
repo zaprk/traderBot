@@ -386,14 +386,15 @@ JSON format:
         
         return True
     
-    def build_batch_prompt(self, symbols_data: Dict[str, Dict], balance: float, risk_pct: float) -> str:
+    def build_batch_prompt(self, symbols_data: Dict[str, Dict], balance: float, risk_pct: float, sentiment_data: Dict[str, Dict] = None) -> str:
         """
-        Build batch prompt for multiple symbols
+        Build batch prompt for multiple symbols with sentiment data
         
         Args:
             symbols_data: Dict mapping symbol to indicators_multi_tf
             balance: Current balance
             risk_pct: Risk percentage per trade
+            sentiment_data: Dict mapping symbol to sentiment info (optional)
         
         Returns:
             Formatted prompt string
@@ -411,37 +412,52 @@ JSON format:
             prompt_lines.append(f"\n{symbol}:")
             prompt_lines.append("-" * 40)
             
-            # Add indicators for each timeframe
+            # Add interpreted indicators for each timeframe
             for tf, indicators in indicators_multi_tf.items():
                 if not indicators or indicators.get('rsi') is None:
                     prompt_lines.append(f"  {tf}: insufficient data")
                     continue
                 
-                rsi_val = indicators.get('rsi', 'N/A')
-                macd_status = 'bullish' if indicators.get('macd_positive') else 'bearish'
-                ema_20 = indicators.get('ema_20', 'N/A')
-                ema_50 = indicators.get('ema_50', 'N/A')
-                atr_val = indicators.get('atr', 'N/A')
-                last_close = indicators.get('last_close', 'N/A')
+                # Get human-readable interpretations
+                price = indicators.get('last_close', 'N/A')
+                rsi_interp = indicators.get('rsi_interpretation', 'Unknown')
+                trend_interp = indicators.get('trend_interpretation', 'Unknown')
+                macd_interp = indicators.get('macd_interpretation', 'Neutral')
+                volume_interp = indicators.get('volume_interpretation', 'Normal volume')
+                candle_summary = indicators.get('summary', 'No candle data')
+                momentum_pct = indicators.get('momentum_pct', 0)
                 
-                ema_relation = ""
-                if indicators.get('ema_20_above_50'):
-                    ema_relation = "bullish (20>50)"
-                elif indicators.get('ema_20_above_50') is False:
-                    ema_relation = "bearish (20<50)"
-                else:
-                    ema_relation = "neutral"
-                
+                # Build comprehensive summary
                 prompt_lines.append(
-                    f"  {tf}: Price={last_close}, RSI={rsi_val}, MACD={macd_status}, "
-                    f"EMAs={ema_relation}, ATR={atr_val}"
+                    f"  {tf}: ${price} | {trend_interp} | RSI: {rsi_interp} | {macd_interp}"
                 )
+                prompt_lines.append(
+                    f"      Candle: {candle_summary} (momentum: {momentum_pct:+.2f}%)"
+                )
+                
+                # Add volume on 15m and 1h only (avoid repetition)
+                if tf in ['15m', '1h']:
+                    prompt_lines.append(f"      Volume: {volume_interp}")
             
-            # Add volume analysis
+            # Add market structure context
             if '1h' in indicators_multi_tf and indicators_multi_tf['1h']:
-                vol_change = indicators_multi_tf['1h'].get('volume_change', 0)
-                vol_status = "high" if vol_change > 20 else "low" if vol_change < -20 else "normal"
-                prompt_lines.append(f"  Volume: {vol_change:+.1f}% vs avg ({vol_status})")
+                structure = indicators_multi_tf['1h'].get('market_structure', 'unknown')
+                structure_map = {
+                    'HHHL': 'Higher highs & higher lows (uptrend)',
+                    'LHLL': 'Lower highs & lower lows (downtrend)',
+                    'range': 'Ranging/consolidating'
+                }
+                structure_desc = structure_map.get(structure, structure)
+                prompt_lines.append(f"  Market Structure: {structure_desc}")
+            
+            # Add sentiment data if available
+            if sentiment_data and symbol in sentiment_data:
+                sentiment = sentiment_data[symbol]
+                sentiment_summary = sentiment.get('summary', 'No sentiment data')
+                trend_status = sentiment.get('trend', 'Normal')
+                
+                emoji = "🔥" if trend_status == "Trending" else "📊"
+                prompt_lines.append(f"  {emoji} Sentiment: {sentiment_summary}")
         
         prompt_lines.append("\n" + "=" * 60)
         prompt_lines.append(
@@ -479,7 +495,7 @@ JSON format:
         
         return None
     
-    def get_batch_decisions(self, symbols_data: Dict[str, Dict], balance: float, risk_pct: float) -> Optional[Dict]:
+    def get_batch_decisions(self, symbols_data: Dict[str, Dict], balance: float, risk_pct: float, sentiment_data: Dict[str, Dict] = None) -> Optional[Dict]:
         """
         Get trading decisions for multiple symbols in one call
         
@@ -487,11 +503,12 @@ JSON format:
             symbols_data: Dict mapping symbol to indicators_multi_tf
             balance: Current balance
             risk_pct: Risk percentage per trade
+            sentiment_data: Dict mapping symbol to sentiment info (optional)
         
         Returns:
             Dict with decisions for each symbol and summary
         """
-        prompt = self.build_batch_prompt(symbols_data, balance, risk_pct)
+        prompt = self.build_batch_prompt(symbols_data, balance, risk_pct, sentiment_data)
         logger.info(f"Generated batch prompt for {len(symbols_data)} symbols")
         logger.debug(f"Prompt:\n{prompt}")
         

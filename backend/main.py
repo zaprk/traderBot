@@ -19,6 +19,7 @@ from bot.trade_manager import TradeManager
 from bot.db import db
 from bot.logger import log_trade_to_csv, log_decision, log_llm_reasoning, export_trades_csv, LOG_DIR
 from bot.backtest import Backtest, simple_rsi_strategy, monte_carlo_simulation
+from bot.sentiment import get_batch_sentiment
 from config import settings
 
 # Setup logging
@@ -237,6 +238,11 @@ async def auto_trading_loop():
             balance = balance_data['balance']
             logger.info(f"💰 Current balance: ${balance:.2f}")
             
+            # Fetch sentiment data for all symbols
+            logger.info("📊 Fetching sentiment data...")
+            sentiment_data = get_batch_sentiment(list(market_data_batch.keys()))
+            logger.info(f"✅ Sentiment data fetched for {len(sentiment_data)} symbols")
+            
             # Extract just the indicators for each symbol (remove 'current_price')
             symbols_indicators = {
                 symbol: data['indicators']
@@ -249,7 +255,8 @@ async def auto_trading_loop():
                 decisions = llm_agent.get_batch_decisions(
                     symbols_data=symbols_indicators,
                     balance=balance,
-                    risk_pct=settings.risk_per_trade
+                    risk_pct=settings.risk_per_trade,
+                    sentiment_data=sentiment_data
                 )
                 logger.info(f"✅ Auto-trading: Received decisions for {len(decisions) if decisions else 0} symbols")
                 
@@ -315,14 +322,14 @@ async def auto_trading_loop():
         except Exception as e:
             logger.error(f"Error in auto-trading loop: {e}", exc_info=True)  # Log full traceback
         
-        # Wait 1 hour before next analysis (interruptible)
-        logger.info("⏰ Auto-trading: Waiting 1 hour until next analysis (or until re-enabled)...")
+        # Wait 15 minutes before next analysis (interruptible)
+        logger.info("⏰ Auto-trading: Waiting 15 minutes until next analysis (or until re-enabled)...")
         try:
-            await asyncio.wait_for(auto_trading_event.wait(), timeout=3600)
+            await asyncio.wait_for(auto_trading_event.wait(), timeout=900)  # 15 minutes = 900 seconds
             auto_trading_event.clear()  # Reset event
             logger.info("🔄 Auto-trading re-triggered early!")
         except asyncio.TimeoutError:
-            logger.info("⏰ 1 hour passed, starting next analysis cycle...")
+            logger.info("⏰ 15 minutes passed, starting next analysis cycle...")
 
 
 # Startup event

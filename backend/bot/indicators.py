@@ -160,6 +160,161 @@ def market_structure(df: pd.DataFrame, lookback: int = 20) -> str:
         return "range"  # Ranging/consolidation
 
 
+def analyze_candle(df: pd.DataFrame) -> Dict[str, any]:
+    """
+    Analyze the most recent candle pattern and momentum
+    
+    Args:
+        df: DataFrame with OHLCV data
+    
+    Returns:
+        Dictionary with candle analysis
+    """
+    if len(df) < 2:
+        return {
+            'candle_type': 'unknown',
+            'momentum_pct': 0.0,
+            'upper_wick_ratio': 0.0,
+            'lower_wick_ratio': 0.0,
+            'body_size_pct': 0.0,
+            'summary': 'Insufficient data'
+        }
+    
+    last = df.iloc[-1]
+    open_price = last['open']
+    close_price = last['close']
+    high_price = last['high']
+    low_price = last['low']
+    
+    # Momentum calculation
+    momentum_pct = ((close_price - open_price) / open_price) * 100
+    
+    # Candle type
+    candle_type = 'green' if close_price >= open_price else 'red'
+    
+    # Body and wick calculations
+    body_size = abs(close_price - open_price)
+    total_range = high_price - low_price
+    
+    if total_range > 0:
+        body_pct = (body_size / total_range) * 100
+        
+        # Wick sizes
+        if candle_type == 'green':
+            upper_wick = high_price - close_price
+            lower_wick = open_price - low_price
+        else:
+            upper_wick = high_price - open_price
+            lower_wick = close_price - low_price
+        
+        upper_wick_ratio = (upper_wick / total_range) * 100
+        lower_wick_ratio = (lower_wick / total_range) * 100
+    else:
+        body_pct = 0
+        upper_wick_ratio = 0
+        lower_wick_ratio = 0
+    
+    # Generate summary
+    momentum_str = "strong" if abs(momentum_pct) > 1 else "moderate" if abs(momentum_pct) > 0.3 else "weak"
+    direction = "bullish" if momentum_pct > 0 else "bearish"
+    
+    wick_note = ""
+    if upper_wick_ratio > 50:
+        wick_note = ", rejection at highs"
+    elif lower_wick_ratio > 50:
+        wick_note = ", rejection at lows"
+    elif body_pct > 70:
+        wick_note = ", decisive move"
+    
+    summary = f"{momentum_str.capitalize()} {direction} candle{wick_note}"
+    
+    return {
+        'candle_type': candle_type,
+        'momentum_pct': round(momentum_pct, 2),
+        'upper_wick_ratio': round(upper_wick_ratio, 1),
+        'lower_wick_ratio': round(lower_wick_ratio, 1),
+        'body_size_pct': round(body_pct, 1),
+        'summary': summary
+    }
+
+
+def normalize_indicators(indicators: Dict[str, any]) -> Dict[str, any]:
+    """
+    Normalize raw indicators to 0-10 scale and add interpretations
+    
+    Args:
+        indicators: Raw indicator values
+    
+    Returns:
+        Dictionary with normalized values and interpretations
+    """
+    normalized = {}
+    
+    # RSI normalization (0-100 -> 0-10, with zones)
+    rsi = indicators.get('rsi')
+    if rsi is not None:
+        normalized['rsi_score'] = round((rsi / 10), 1)
+        if rsi > 70:
+            normalized['rsi_interpretation'] = "Overbought"
+        elif rsi > 60:
+            normalized['rsi_interpretation'] = "Strong"
+        elif rsi > 40:
+            normalized['rsi_interpretation'] = "Neutral"
+        elif rsi > 30:
+            normalized['rsi_interpretation'] = "Weak"
+        else:
+            normalized['rsi_interpretation'] = "Oversold"
+    else:
+        normalized['rsi_score'] = None
+        normalized['rsi_interpretation'] = "Unknown"
+    
+    # MACD interpretation
+    macd_hist = indicators.get('macd_hist', 0)
+    if macd_hist > 0:
+        normalized['macd_strength'] = min(10, round(abs(macd_hist) * 100, 1))
+        normalized['macd_interpretation'] = "Bullish momentum"
+    elif macd_hist < 0:
+        normalized['macd_strength'] = min(10, round(abs(macd_hist) * 100, 1))
+        normalized['macd_interpretation'] = "Bearish momentum"
+    else:
+        normalized['macd_strength'] = 0
+        normalized['macd_interpretation'] = "Neutral"
+    
+    # EMA trend strength
+    ema_20_above_50 = indicators.get('ema_20_above_50')
+    ema_50_above_200 = indicators.get('ema_50_above_200')
+    
+    if ema_20_above_50 and ema_50_above_200:
+        normalized['trend_strength'] = 9
+        normalized['trend_interpretation'] = "Strong uptrend"
+    elif ema_20_above_50:
+        normalized['trend_strength'] = 7
+        normalized['trend_interpretation'] = "Moderate uptrend"
+    elif ema_20_above_50 is False and ema_50_above_200 is False:
+        normalized['trend_strength'] = 1
+        normalized['trend_interpretation'] = "Strong downtrend"
+    elif ema_20_above_50 is False:
+        normalized['trend_strength'] = 3
+        normalized['trend_interpretation'] = "Moderate downtrend"
+    else:
+        normalized['trend_strength'] = 5
+        normalized['trend_interpretation'] = "Neutral/Ranging"
+    
+    # Volume strength (0-10 scale)
+    vol_change = indicators.get('volume_change', 0)
+    normalized['volume_score'] = min(10, max(0, round(5 + (vol_change / 20), 1)))
+    if vol_change > 50:
+        normalized['volume_interpretation'] = "Very high volume"
+    elif vol_change > 20:
+        normalized['volume_interpretation'] = "High volume"
+    elif vol_change > -20:
+        normalized['volume_interpretation'] = "Normal volume"
+    else:
+        normalized['volume_interpretation'] = "Low volume"
+    
+    return normalized
+
+
 def calculate_all_indicators(df: pd.DataFrame) -> Dict[str, any]:
     """
     Calculate all indicators for a given DataFrame
@@ -218,6 +373,14 @@ def calculate_all_indicators(df: pd.DataFrame) -> Dict[str, any]:
     
     if result['ema_50'] and result['ema_200']:
         result['ema_50_above_200'] = bool(result['ema_50'] > result['ema_200'])
+    
+    # Add candle analysis
+    candle_info = analyze_candle(df)
+    result.update(candle_info)
+    
+    # Add normalized indicators and interpretations
+    normalized = normalize_indicators(result)
+    result.update(normalized)
     
     return result
 
