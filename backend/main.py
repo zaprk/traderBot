@@ -212,16 +212,18 @@ async def auto_trading_loop():
             for symbol in symbols:
                 try:
                     # Symbol is already formatted (e.g., 'BTC/USDT'), don't format again!
-                    data = fetch_multi_timeframes(exchange, symbol)
+                    data = fetch_multi_timeframes(exchange, symbol, timeframes=['5m', '15m', '30m', '1h'])
                     if data:
                         indicators_5m = calculate_all_indicators(data['5m'])
                         indicators_15m = calculate_all_indicators(data['15m'])
+                        indicators_30m = calculate_all_indicators(data['30m'])
                         indicators_1h = calculate_all_indicators(data['1h'])
                         
                         market_data_batch[symbol] = {
                             'indicators': {
                                 '5m': indicators_5m,
                                 '15m': indicators_15m,
+                                '30m': indicators_30m,
                                 '1h': indicators_1h
                             },
                             'current_price': get_current_price(exchange, symbol)

@@ -89,14 +89,20 @@ Think through your analysis step-by-step:
 3. Compare opportunities - which looks best?
 4. Only recommend trades with high confidence (>0.7) and clear edge
 
+STOP-LOSS & TAKE-PROFIT RULES:
+- Use ATR (Average True Range) for risk management
+- Stop-loss should be 1.5-2x ATR from entry (use the 1h ATR)
+- Take-profit should be 2-3x the stop distance (2:1 or 3:1 reward:risk)
+- Include the ATR value in your response for validation
+
 IMPORTANT: Be concise in your reasoning. Focus on key insights.
 
-CRITICAL: After your analysis, you MUST output a COMPLETE valid JSON object. Ensure all 5 symbols have entries.
+CRITICAL: After your analysis, you MUST output a COMPLETE valid JSON object. Ensure all symbols have entries.
 
 JSON format:
 {
   "decisions": {
-    "BTC/USDT": {"action": "long"|"short"|"none", "entry_price": float|null, "stop_loss": float|null, "take_profit": float|null, "confidence": float, "reason": "string"},
+    "BTC/USDT": {"action": "long"|"short"|"none", "entry_price": float|null, "stop_loss": float|null, "take_profit": float|null, "atr": float|null, "confidence": float, "reason": "string"},
     "ETH/USDT": {...},
     ...
   },
@@ -420,6 +426,7 @@ JSON format:
                 
                 # Get human-readable interpretations
                 price = indicators.get('last_close', 'N/A')
+                atr = indicators.get('atr', 'N/A')
                 rsi_interp = indicators.get('rsi_interpretation', 'Unknown')
                 trend_interp = indicators.get('trend_interpretation', 'Unknown')
                 macd_interp = indicators.get('macd_interpretation', 'Neutral')
@@ -429,14 +436,14 @@ JSON format:
                 
                 # Build comprehensive summary
                 prompt_lines.append(
-                    f"  {tf}: ${price} | {trend_interp} | RSI: {rsi_interp} | {macd_interp}"
+                    f"  {tf}: ${price} | ATR: ${atr} | {trend_interp} | RSI: {rsi_interp} | {macd_interp}"
                 )
                 prompt_lines.append(
                     f"      Candle: {candle_summary} (momentum: {momentum_pct:+.2f}%)"
                 )
                 
-                # Add volume on 15m and 1h only (avoid repetition)
-                if tf in ['15m', '1h']:
+                # Add volume on 15m, 30m, and 1h only (avoid repetition)
+                if tf in ['15m', '30m', '1h']:
                     prompt_lines.append(f"      Volume: {volume_interp}")
             
             # Add market structure context
