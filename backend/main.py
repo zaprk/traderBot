@@ -20,6 +20,11 @@ from bot.db import db
 from bot.logger import log_trade_to_csv, log_decision, log_llm_reasoning, export_trades_csv, LOG_DIR
 from bot.backtest import Backtest, simple_rsi_strategy, monte_carlo_simulation
 from bot.sentiment import get_batch_sentiment
+from bot.volatility_monitor import volatility_monitor
+from bot.position_monitor import position_monitor
+from bot.breakout_detector import breakout_detector
+from bot.convergence_scorer import convergence_scorer
+from bot.order_flow import order_flow_analyzer
 from config import settings
 
 # Setup logging
@@ -114,10 +119,10 @@ def initialize_system():
 
 # Background task for monitoring positions (checks SL/TP)
 async def position_monitor_loop():
-    """Monitor open positions every 30 seconds for stop-loss/take-profit"""
+    """🎯 ADVANCED Position Monitor - Trailing stops, partial exits, dynamic risk management"""
     # Wait for system to initialize
     await asyncio.sleep(15)
-    logger.info("Position monitor started - checking every 30 seconds")
+    logger.info("🎯 Advanced position monitor started - checking every 30 seconds")
     
     while True:
         try:
@@ -133,35 +138,66 @@ async def position_monitor_loop():
             if not open_positions_dict:
                 continue  # No positions to monitor
             
-            # Fetch current prices for all open positions
-            current_prices = {}
+            # 🎯 ADVANCED POSITION MANAGEMENT
             for position_id, position in open_positions_dict.items():
                 symbol = position['symbol']
+                
                 try:
+                    # Fetch current price and ATR
                     formatted_symbol = format_symbol(symbol)
                     ticker = exchange.fetch_ticker(formatted_symbol)
-                    current_prices[symbol] = ticker['last']
+                    current_price = ticker['last']
+                    
+                    # Get current ATR from 1h timeframe
+                    data_1h = fetch_multi_timeframes(exchange, formatted_symbol, timeframes=['1h'])
+                    if data_1h and '1h' in data_1h:
+                        indicators_1h = calculate_all_indicators(data_1h['1h'])
+                        atr = indicators_1h.get('atr', 0)
+                    else:
+                        atr = 0
+                    
+                    # 🎯 APPLY ADVANCED POSITION MANAGEMENT
+                    action = position_monitor.manage_position(symbol, position, current_price, atr)
+                    
+                    # Handle different actions
+                    if action['action'] == 'close':
+                        # Close entire position
+                        db.update_trade(position_id, {
+                            'status': 'closed',
+                            'exit_price': action['price'],
+                            'exit_time': datetime.now().isoformat(),
+                            'exit_reason': action['reason']
+                        })
+                        # Calculate P&L
+                        if position['side'] == 'long':
+                            pnl_usd = (action['price'] - position['entry_price']) * position['units']
+                        else:
+                            pnl_usd = (position['entry_price'] - action['price']) * position['units']
+                        
+                        log_trade_to_csv({**position, 'exit_price': action['price'], 'pnl_usd': pnl_usd})
+                        logger.info(f"🛑 Position closed: {symbol} {action['reason']} @ ${action['price']:.2f} - P&L: ${pnl_usd:.2f}")
+                        
+                        # Reset tracking
+                        position_monitor.reset_position_tracking(symbol)
+                    
+                    elif action['action'] == 'partial_exit':
+                        # Execute partial exits (in paper trading, just log it)
+                        for exit in action['exits']:
+                            logger.info(f"💰 {symbol}: {exit['reason']}")
+                    
+                    elif action['action'] == 'update_stop':
+                        # Update trailing stop in database
+                        db.update_trade(position_id, {
+                            'stop_loss': action['new_stop']
+                        })
+                        logger.info(f"📈 {symbol}: Stop updated to ${action['new_stop']:.2f}")
+                    
+                    elif action['action'] == 'hold':
+                        # Just monitoring
+                        pass
+                
                 except Exception as e:
-                    logger.error(f"Error fetching price for {symbol}: {e}")
-            
-            # Monitor positions and close if SL/TP hit
-            closed_positions = trade_manager.monitor_positions(current_prices)
-            
-            # Update database for closed positions
-            for closed_pos in closed_positions:
-                try:
-                    db.update_trade(closed_pos['id'], {
-                        'status': 'closed',
-                        'exit_price': closed_pos['exit_price'],
-                        'exit_time': closed_pos['exit_time'],
-                        'pnl_usd': closed_pos['pnl_usd'],
-                        'pnl_pct': closed_pos['pnl_pct'],
-                        'exit_reason': closed_pos['exit_reason']
-                    })
-                    log_trade_to_csv(closed_pos)
-                    logger.info(f"✅ Position closed: {closed_pos['symbol']} {closed_pos['exit_reason']} - P&L: ${closed_pos['pnl_usd']:.2f}")
-                except Exception as e:
-                    logger.error(f"Error updating closed position: {e}")
+                    logger.error(f"Error managing position for {symbol}: {e}")
                     
         except Exception as e:
             logger.error(f"Error in position monitor loop: {e}")
@@ -207,7 +243,7 @@ async def auto_trading_loop():
             symbols = [f"{coin}/USDT" for coin in coins]
             logger.info(f"📊 Analyzing {len(symbols)} symbols: {symbols}")
             
-            # Fetch market data for all symbols
+            # Fetch market data for all symbols with ADVANCED ANALYSIS
             market_data_batch = {}
             for symbol in symbols:
                 try:
@@ -219,21 +255,47 @@ async def auto_trading_loop():
                         indicators_30m = calculate_all_indicators(data['30m'])
                         indicators_1h = calculate_all_indicators(data['1h'])
                         
-                        market_data_batch[symbol] = {
-                            'indicators': {
-                                '5m': indicators_5m,
-                                '15m': indicators_15m,
-                                '30m': indicators_30m,
-                                '1h': indicators_1h
-                            },
-                            'current_price': get_current_price(exchange, symbol)
+                        # 🔥 BREAKOUT DETECTION
+                        breakout_15m = breakout_detector.calculate_breakout_score(data['15m'], indicators_15m)
+                        
+                        # 🎯 MULTI-TIMEFRAME CONVERGENCE SCORING
+                        indicators_multi_tf = {
+                            '5m': indicators_5m,
+                            '15m': indicators_15m,
+                            '30m': indicators_30m,
+                            '1h': indicators_1h
                         }
+                        convergence_analysis = convergence_scorer.compare_directions(indicators_multi_tf)
+                        
+                        # 💧 ORDER FLOW & LIQUIDITY ANALYSIS
+                        order_flow = order_flow_analyzer.analyze_order_flow(data['1h'])
+                        
+                        market_data_batch[symbol] = {
+                            'indicators': indicators_multi_tf,
+                            'current_price': get_current_price(exchange, symbol),
+                            'breakout': breakout_15m,
+                            'convergence': convergence_analysis,
+                            'order_flow': order_flow,
+                            'raw_data': data  # Keep raw data for position monitoring
+                        }
+                        
+                        # Log high-conviction signals
+                        if convergence_analysis['has_clear_edge'] and convergence_analysis['best_direction'] != 'none':
+                            logger.info(f"🎯 {symbol}: {convergence_analysis['recommendation']}")
+                        
+                        if breakout_15m['is_breakout']:
+                            logger.warning(f"🔥 {symbol}: {breakout_15m['strength'].upper()} breakout detected!")
+                        
                 except Exception as e:
                     logger.error(f"Error fetching data for {symbol}: {e}")
             
             if not market_data_batch:
                 logger.error("No market data available for auto-trading")
                 continue
+            
+            # ⚡ ADAPTIVE VOLATILITY TIMING
+            optimal_interval, volatility_regime = volatility_monitor.get_optimal_interval(market_data_batch)
+            logger.info(f"⚡ Market volatility: {volatility_regime} → Next analysis in {optimal_interval//60} minutes")
             
             # Get current balance for decision-making
             balance_data = await get_balance()
@@ -245,10 +307,28 @@ async def auto_trading_loop():
             sentiment_data = get_batch_sentiment(list(market_data_batch.keys()))
             logger.info(f"✅ Sentiment data fetched for {len(sentiment_data)} symbols")
             
-            # Extract just the indicators for each symbol (remove 'current_price')
+            # 🎯 FILTER SYMBOLS BY CONVERGENCE SCORE (only pass high-quality setups to AI)
+            filtered_symbols = {}
+            for symbol, data in market_data_batch.items():
+                convergence = data['convergence']
+                breakout = data['breakout']
+                
+                # Include if: HIGH convergence OR strong breakout
+                if (convergence['has_clear_edge'] and 
+                    convergence[convergence['best_direction']]['total_score'] >= 60) or \
+                   (breakout['is_breakout'] and breakout['strength'] in ['strong', 'explosive']):
+                    filtered_symbols[symbol] = data
+                    logger.info(f"✅ {symbol} passed filters (convergence: {convergence[convergence['best_direction']]['total_score']:.1f}, breakout: {breakout['strength']})")
+            
+            if not filtered_symbols:
+                logger.warning("⚠️ No symbols passed quality filters this cycle")
+                # Still update interval based on volatility
+                continue
+            
+            # Extract just the indicators for each symbol (use FILTERED symbols only)
             symbols_indicators = {
                 symbol: data['indicators']
-                for symbol, data in market_data_batch.items()
+                for symbol, data in filtered_symbols.items()
             }
             
             # Get batch decisions from LLM
@@ -281,13 +361,29 @@ async def auto_trading_loop():
                 )
                 logger.info("💾 AI reasoning logged to persistent storage")
                 
-                # Execute high-confidence trades
+                # Execute high-confidence trades with ORDER FLOW QUALITY CHECK
                 high_confidence_count = 0
                 for symbol, decision in decisions.items():
                     action = decision.get('action')
                     confidence = decision.get('confidence', 0)
                     
                     if action in ['long', 'short'] and confidence > 0.7:
+                        # 💧 ORDER FLOW QUALITY CHECK
+                        if symbol in filtered_symbols:
+                            order_flow = filtered_symbols[symbol]['order_flow']
+                            current_price = filtered_symbols[symbol]['current_price']
+                            entry_quality = order_flow_analyzer.get_entry_quality(
+                                current_price, action, order_flow
+                            )
+                            
+                            logger.info(f"💧 {symbol}: Entry quality: {entry_quality['quality']} (score: {entry_quality['score']}/100)")
+                            logger.info(f"   Reason: {entry_quality['reason']}")
+                            
+                            # Require at least "acceptable" entry quality
+                            if entry_quality['score'] < 50:
+                                logger.warning(f"⚠️ {symbol}: Skipping trade due to poor entry quality")
+                                continue
+                        
                         high_confidence_count += 1
                         logger.info(f"🎯 High confidence trade opportunity: {symbol} {action.upper()} (confidence={confidence})")
                         try:
@@ -331,14 +427,16 @@ async def auto_trading_loop():
         except Exception as e:
             logger.error(f"Error in auto-trading loop: {e}", exc_info=True)  # Log full traceback
         
-        # Wait 15 minutes before next analysis (interruptible)
-        logger.info("⏰ Auto-trading: Waiting 15 minutes until next analysis (or until re-enabled)...")
+        # ⚡ ADAPTIVE WAIT based on market volatility (interruptible)
+        wait_interval = optimal_interval if 'optimal_interval' in locals() else 900  # Default to 15 min
+        wait_minutes = wait_interval // 60
+        logger.info(f"⏰ Auto-trading: Waiting {wait_minutes} minutes until next analysis (or until re-enabled)...")
         try:
-            await asyncio.wait_for(auto_trading_event.wait(), timeout=900)  # 15 minutes = 900 seconds
+            await asyncio.wait_for(auto_trading_event.wait(), timeout=wait_interval)
             auto_trading_event.clear()  # Reset event
             logger.info("🔄 Auto-trading re-triggered early!")
         except asyncio.TimeoutError:
-            logger.info("⏰ 15 minutes passed, starting next analysis cycle...")
+            logger.info(f"⏰ {wait_minutes} minutes passed, starting next analysis cycle...")
 
 
 # Startup event
