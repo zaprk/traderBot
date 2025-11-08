@@ -331,6 +331,12 @@ async def auto_trading_loop():
                 for symbol, data in filtered_symbols.items()
             }
             
+            # Extract order flow data for each symbol
+            order_flow_batch = {
+                symbol: data['order_flow']
+                for symbol, data in filtered_symbols.items()
+            }
+            
             # Get batch decisions from LLM
             try:
                 logger.info("🧠 Calling DeepSeek AI for batch analysis...")
@@ -338,7 +344,8 @@ async def auto_trading_loop():
                     symbols_data=symbols_indicators,
                     balance=balance,
                     risk_pct=settings.risk_per_trade,
-                    sentiment_data=sentiment_data
+                    sentiment_data=sentiment_data,
+                    order_flow_data=order_flow_batch
                 )
                 
                 # Extract decisions from response

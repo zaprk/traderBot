@@ -392,15 +392,17 @@ JSON format:
         
         return True
     
-    def build_batch_prompt(self, symbols_data: Dict[str, Dict], balance: float, risk_pct: float, sentiment_data: Dict[str, Dict] = None) -> str:
+    def build_batch_prompt(self, symbols_data: Dict[str, Dict], balance: float, risk_pct: float, 
+                          sentiment_data: Dict[str, Dict] = None, order_flow_data: Dict[str, Dict] = None) -> str:
         """
-        Build batch prompt for multiple symbols with sentiment data
+        Build batch prompt for multiple symbols with sentiment and order flow data
         
         Args:
             symbols_data: Dict mapping symbol to indicators_multi_tf
             balance: Current balance
             risk_pct: Risk percentage per trade
             sentiment_data: Dict mapping symbol to sentiment info (optional)
+            order_flow_data: Dict mapping symbol to order flow analysis (optional)
         
         Returns:
             Formatted prompt string
@@ -465,6 +467,60 @@ JSON format:
                 
                 emoji = "🔥" if trend_status == "Trending" else "📊"
                 prompt_lines.append(f"  {emoji} Sentiment: {sentiment_summary}")
+            
+            # Add order flow & liquidity data
+            if order_flow_data and symbol in order_flow_data:
+                order_flow = order_flow_data[symbol]
+                
+                # Order blocks
+                order_blocks = order_flow.get('order_blocks', [])
+                if order_blocks:
+                    bullish_obs = [ob for ob in order_blocks if 'bullish' in ob.get('category', '')]
+                    bearish_obs = [ob for ob in order_blocks if 'bearish' in ob.get('category', '')]
+                    
+                    if bullish_obs:
+                        top_bull = bullish_obs[0]
+                        prompt_lines.append(
+                            f"  💰 Bullish Order Block: ${top_bull['price_low']:.2f}-${top_bull['price_high']:.2f} "
+                            f"(strength: {top_bull['strength']}, vol: {top_bull['volume_ratio']:.1f}x)"
+                        )
+                    
+                    if bearish_obs:
+                        top_bear = bearish_obs[0]
+                        prompt_lines.append(
+                            f"  💰 Bearish Order Block: ${top_bear['price_low']:.2f}-${top_bear['price_high']:.2f} "
+                            f"(strength: {top_bear['strength']}, vol: {top_bear['volume_ratio']:.1f}x)"
+                        )
+                
+                # Volume metrics
+                volume_delta = order_flow.get('volume_delta', 0)
+                absorption = order_flow.get('absorption_detected', False)
+                
+                volume_pressure = ""
+                if volume_delta > 0:
+                    volume_pressure = f"Buying pressure (Δ: +{volume_delta:.0f})"
+                elif volume_delta < 0:
+                    volume_pressure = f"Selling pressure (Δ: {volume_delta:.0f})"
+                else:
+                    volume_pressure = "Neutral volume"
+                
+                if absorption:
+                    volume_pressure += " | 🔍 INSTITUTIONAL ABSORPTION DETECTED"
+                
+                prompt_lines.append(f"  📊 Volume Flow: {volume_pressure}")
+                
+                # Key levels
+                nearest_support = order_flow.get('nearest_support')
+                nearest_resistance = order_flow.get('nearest_resistance')
+                current_price = order_flow.get('current_price')
+                
+                if nearest_support and nearest_resistance and current_price:
+                    support_dist = ((current_price - nearest_support) / current_price) * 100
+                    resistance_dist = ((nearest_resistance - current_price) / current_price) * 100
+                    prompt_lines.append(
+                        f"  💧 Key Levels: Support ${nearest_support:.2f} (-{support_dist:.2f}%), "
+                        f"Resistance ${nearest_resistance:.2f} (+{resistance_dist:.2f}%)"
+                    )
         
         prompt_lines.append("\n" + "=" * 60)
         prompt_lines.append(
@@ -502,7 +558,8 @@ JSON format:
         
         return None
     
-    def get_batch_decisions(self, symbols_data: Dict[str, Dict], balance: float, risk_pct: float, sentiment_data: Dict[str, Dict] = None) -> Optional[Dict]:
+    def get_batch_decisions(self, symbols_data: Dict[str, Dict], balance: float, risk_pct: float, 
+                           sentiment_data: Dict[str, Dict] = None, order_flow_data: Dict[str, Dict] = None) -> Optional[Dict]:
         """
         Get trading decisions for multiple symbols in one call
         
@@ -511,11 +568,12 @@ JSON format:
             balance: Current balance
             risk_pct: Risk percentage per trade
             sentiment_data: Dict mapping symbol to sentiment info (optional)
+            order_flow_data: Dict mapping symbol to order flow analysis (optional)
         
         Returns:
             Dict with decisions for each symbol and summary
         """
-        prompt = self.build_batch_prompt(symbols_data, balance, risk_pct, sentiment_data)
+        prompt = self.build_batch_prompt(symbols_data, balance, risk_pct, sentiment_data, order_flow_data)
         logger.info(f"Generated batch prompt for {len(symbols_data)} symbols")
         logger.debug(f"Prompt:\n{prompt}")
         

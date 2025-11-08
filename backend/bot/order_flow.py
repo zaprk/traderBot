@@ -26,26 +26,34 @@ class OrderFlowAnalyzer:
             df: OHLCV DataFrame
         
         Returns:
-            Dict with liquidity pools, order blocks, and key levels
+            Dict with liquidity pools, order blocks, key levels, and advanced volume metrics
         """
         if len(df) < self.lookback_period:
             return {
                 'liquidity_pools': [],
                 'order_blocks': [],
                 'key_levels': [],
+                'volume_delta': 0,
+                'volume_profile': {},
+                'absorption_detected': False,
                 'analysis': 'Insufficient data'
             }
         
         # 1. Find liquidity pools (stop hunt zones)
         liquidity_pools = self._find_liquidity_pools(df)
         
-        # 2. Identify order blocks (institutional zones)
-        order_blocks = self._identify_order_blocks(df)
+        # 2. Identify order blocks (institutional zones) - ENHANCED
+        order_blocks = self._detect_systematic_order_blocks(df)
         
         # 3. Detect key support/resistance levels
         key_levels = self._find_key_levels(df)
         
-        # 4. Current price context
+        # 4. Advanced volume metrics
+        volume_delta = self._calculate_volume_delta(df)
+        volume_profile = self._build_volume_profile(df)
+        absorption_detected = self._detect_absorption(df)
+        
+        # 5. Current price context
         current_price = df.iloc[-1]['close']
         nearest_support, nearest_resistance = self._find_nearest_levels(
             current_price, liquidity_pools, order_blocks, key_levels
@@ -55,11 +63,15 @@ class OrderFlowAnalyzer:
             'liquidity_pools': liquidity_pools,
             'order_blocks': order_blocks,
             'key_levels': key_levels,
+            'volume_delta': volume_delta,
+            'volume_profile': volume_profile,
+            'absorption_detected': absorption_detected,
             'current_price': current_price,
             'nearest_support': nearest_support,
             'nearest_resistance': nearest_resistance,
             'analysis': self._generate_analysis(
-                current_price, nearest_support, nearest_resistance
+                current_price, nearest_support, nearest_resistance,
+                volume_delta, absorption_detected
             )
         }
     
@@ -108,53 +120,108 @@ class OrderFlowAnalyzer:
         
         return pools
     
-    def _identify_order_blocks(self, df: pd.DataFrame) -> List[Dict]:
+    def _detect_systematic_order_blocks(self, df: pd.DataFrame) -> List[Dict]:
         """
-        Identify order blocks (institutional entry/exit zones)
+        🔥 SYSTEMATIC ORDER BLOCK DETECTION
+        Detects smart money accumulation/distribution zones
         
-        Order blocks are strong impulse moves followed by retracement
+        Requirements:
+        - Bullish OB: Strong green candle (2%+ body) after red candle with volume spike
+        - Bearish OB: Strong red candle (2%+ body) after green candle with volume spike
         """
         blocks = []
         recent = df.tail(self.lookback_period)
         
-        for i in range(1, len(recent) - 1):
+        for i in range(2, len(recent)):
             current = recent.iloc[i]
             previous = recent.iloc[i-1]
-            next_candle = recent.iloc[i+1]
+            prev_prev = recent.iloc[i-2] if i >= 2 else None
             
-            # Calculate move size
-            move_size = abs(current['close'] - current['open'])
-            avg_size = (recent['high'] - recent['low']).mean()
+            current_open = current['open']
+            current_close = current['close']
+            current_high = current['high']
+            current_low = current['low']
+            current_volume = current['volume']
             
-            # Is this an impulse candle? (large move with volume)
-            if move_size > avg_size * 1.5:
-                # Bullish order block (strong up move)
-                if current['close'] > current['open']:
-                    # Zone is from open to low of impulse candle
-                    blocks.append({
-                        'type': 'support',
-                        'price_low': current['low'],
-                        'price_high': current['open'],
-                        'category': 'bullish_order_block',
-                        'description': f'Bullish OB: ${current["low"]:.2f}-${current["open"]:.2f}',
-                        'strength': 'strong' if move_size > avg_size * 2 else 'moderate'
-                    })
+            prev_close = previous['close']
+            prev_open = previous['open']
+            prev_volume = previous['volume']
+            
+            # Calculate body percentage
+            body_pct = abs(current_close - current_open) / current_open
+            
+            # 🟢 BULLISH ORDER BLOCK DETECTION
+            if (current_close > current_open * 1.02 and  # 2%+ green body
+                prev_close < prev_open and  # Previous candle is red
+                current_volume > prev_volume * 1.5):  # Volume spike (50%+)
                 
-                # Bearish order block (strong down move)
-                else:
-                    # Zone is from open to high of impulse candle
-                    blocks.append({
-                        'type': 'resistance',
-                        'price_low': current['open'],
-                        'price_high': current['high'],
-                        'category': 'bearish_order_block',
-                        'description': f'Bearish OB: ${current["open"]:.2f}-${current["high"]:.2f}',
-                        'strength': 'strong' if move_size > avg_size * 2 else 'moderate'
-                    })
+                # Calculate strength
+                strength_score = 0
+                if body_pct > 0.03: strength_score += 30  # 3%+ body
+                if current_volume > prev_volume * 2: strength_score += 30  # 2x volume
+                if current_close == current_high: strength_score += 20  # Closed at high
+                if i >= 2 and prev_prev is not None:
+                    # Check if this breaks downtrend
+                    if prev_prev['close'] < prev_prev['open']:
+                        strength_score += 20
+                
+                strength = 'strong' if strength_score >= 60 else 'moderate'
+                
+                blocks.append({
+                    'type': 'support',
+                    'price_low': current_low,
+                    'price_high': current_open,
+                    'category': 'bullish_order_block',
+                    'description': f'💰 Bullish OB: ${current_low:.2f}-${current_open:.2f} (vol: {(current_volume/prev_volume):.1f}x)',
+                    'strength': strength,
+                    'strength_score': strength_score,
+                    'volume_ratio': current_volume / prev_volume,
+                    'body_pct': body_pct * 100,
+                    'index': i
+                })
+            
+            # 🔴 BEARISH ORDER BLOCK DETECTION
+            elif (current_close < current_open * 0.98 and  # 2%+ red body
+                  prev_close > prev_open and  # Previous candle is green
+                  current_volume > prev_volume * 1.5):  # Volume spike (50%+)
+                
+                # Calculate strength
+                strength_score = 0
+                if body_pct > 0.03: strength_score += 30  # 3%+ body
+                if current_volume > prev_volume * 2: strength_score += 30  # 2x volume
+                if current_close == current_low: strength_score += 20  # Closed at low
+                if i >= 2 and prev_prev is not None:
+                    # Check if this breaks uptrend
+                    if prev_prev['close'] > prev_prev['open']:
+                        strength_score += 20
+                
+                strength = 'strong' if strength_score >= 60 else 'moderate'
+                
+                blocks.append({
+                    'type': 'resistance',
+                    'price_low': current_open,
+                    'price_high': current_high,
+                    'category': 'bearish_order_block',
+                    'description': f'💰 Bearish OB: ${current_open:.2f}-${current_high:.2f} (vol: {(current_volume/prev_volume):.1f}x)',
+                    'strength': strength,
+                    'strength_score': strength_score,
+                    'volume_ratio': current_volume / prev_volume,
+                    'body_pct': body_pct * 100,
+                    'index': i
+                })
         
-        # Keep only most recent 5 of each type
-        bullish_blocks = [b for b in blocks if 'bullish' in b['category']][-5:]
-        bearish_blocks = [b for b in blocks if 'bearish' in b['category']][-5:]
+        # Keep only most recent 5 of each type (strongest first)
+        bullish_blocks = sorted(
+            [b for b in blocks if 'bullish' in b['category']], 
+            key=lambda x: x['strength_score'], 
+            reverse=True
+        )[:5]
+        
+        bearish_blocks = sorted(
+            [b for b in blocks if 'bearish' in b['category']], 
+            key=lambda x: x['strength_score'], 
+            reverse=True
+        )[:5]
         
         return bullish_blocks + bearish_blocks
     
@@ -239,27 +306,126 @@ class OrderFlowAnalyzer:
         
         return nearest_support, nearest_resistance
     
+    def _calculate_volume_delta(self, df: pd.DataFrame) -> float:
+        """
+        📊 VOLUME DELTA: Calculate buying vs selling pressure
+        
+        Returns:
+            Positive = buying pressure, Negative = selling pressure
+        """
+        recent = df.tail(20)  # Last 20 candles
+        total_delta = 0
+        
+        for idx, candle in recent.iterrows():
+            if candle['close'] >= candle['open']:
+                # Green candle: majority volume is buying
+                buy_volume = candle['volume'] * 0.7
+                sell_volume = candle['volume'] * 0.3
+            else:
+                # Red candle: majority volume is selling
+                buy_volume = candle['volume'] * 0.3
+                sell_volume = candle['volume'] * 0.7
+            
+            total_delta += (buy_volume - sell_volume)
+        
+        return total_delta
+    
+    def _build_volume_profile(self, df: pd.DataFrame, price_levels: int = 20) -> Dict:
+        """
+        📊 VOLUME PROFILE: Identify high-volume nodes
+        
+        Returns:
+            Dict of price bands with their volume
+        """
+        recent = df.tail(100)  # Last 100 candles
+        
+        price_min = recent['low'].min()
+        price_max = recent['high'].max()
+        level_size = (price_max - price_min) / price_levels
+        
+        profile = {}
+        high_volume_nodes = []
+        
+        for level in range(price_levels):
+            price_band_start = price_min + (level * level_size)
+            price_band_end = price_band_start + level_size
+            
+            # Sum volume for candles touching this price band
+            band_volume = 0
+            for idx, candle in recent.iterrows():
+                if candle['low'] <= price_band_end and candle['high'] >= price_band_start:
+                    band_volume += candle['volume']
+            
+            band_key = f"{price_band_start:.2f}-{price_band_end:.2f}"
+            profile[band_key] = band_volume
+            
+            # Track high volume nodes (top 20%)
+            if band_volume > 0:
+                high_volume_nodes.append((band_key, band_volume))
+        
+        # Sort and keep top 5 high volume nodes
+        high_volume_nodes = sorted(high_volume_nodes, key=lambda x: x[1], reverse=True)[:5]
+        profile['high_volume_nodes'] = [node[0] for node in high_volume_nodes]
+        
+        return profile
+    
+    def _detect_absorption(self, df: pd.DataFrame) -> bool:
+        """
+        📊 ABSORPTION VOLUME: Detect institutional accumulation/distribution
+        
+        Large volume + small price movement = absorption
+        Returns True if absorption detected in last 10 candles
+        """
+        recent = df.tail(20)
+        avg_volume = recent['volume'].mean()
+        
+        # Check last 10 candles for absorption
+        for idx, candle in recent.tail(10).iterrows():
+            body_size = abs(candle['close'] - candle['open']) / candle['open']
+            
+            # Large volume (2x average) + small body (<0.5%)
+            if candle['volume'] > avg_volume * 2.0 and body_size < 0.005:
+                logger.info(f"🔍 Absorption detected: Volume {candle['volume']:.0f} vs avg {avg_volume:.0f}, body {body_size*100:.2f}%")
+                return True
+        
+        return False
+    
     def _generate_analysis(self, current_price: float, 
                           nearest_support: Optional[float],
-                          nearest_resistance: Optional[float]) -> str:
-        """Generate human-readable analysis"""
+                          nearest_resistance: Optional[float],
+                          volume_delta: float = 0,
+                          absorption_detected: bool = False) -> str:
+        """Generate human-readable analysis with volume context"""
+        base_analysis = ""
+        
         if nearest_support and nearest_resistance:
             support_distance = ((current_price - nearest_support) / current_price) * 100
             resistance_distance = ((nearest_resistance - current_price) / current_price) * 100
             
-            return (
+            base_analysis = (
                 f"Price at ${current_price:.2f}. "
-                f"Nearest support: ${nearest_support:.2f} (-{support_distance:.2f}%), "
-                f"Nearest resistance: ${nearest_resistance:.2f} (+{resistance_distance:.2f}%)"
+                f"Support: ${nearest_support:.2f} (-{support_distance:.2f}%), "
+                f"Resistance: ${nearest_resistance:.2f} (+{resistance_distance:.2f}%)"
             )
         elif nearest_support:
             support_distance = ((current_price - nearest_support) / current_price) * 100
-            return f"Price at ${current_price:.2f}. Nearest support: ${nearest_support:.2f} (-{support_distance:.2f}%)"
+            base_analysis = f"Price at ${current_price:.2f}. Support: ${nearest_support:.2f} (-{support_distance:.2f}%)"
         elif nearest_resistance:
             resistance_distance = ((nearest_resistance - current_price) / current_price) * 100
-            return f"Price at ${current_price:.2f}. Nearest resistance: ${nearest_resistance:.2f} (+{resistance_distance:.2f}%)"
+            base_analysis = f"Price at ${current_price:.2f}. Resistance: ${nearest_resistance:.2f} (+{resistance_distance:.2f}%)"
         else:
-            return f"Price at ${current_price:.2f}. No clear support/resistance nearby."
+            base_analysis = f"Price at ${current_price:.2f}. No clear support/resistance nearby."
+        
+        # Add volume context
+        if volume_delta > 0:
+            base_analysis += f" 📊 Buying pressure (Δ: +{volume_delta:.0f})"
+        elif volume_delta < 0:
+            base_analysis += f" 📊 Selling pressure (Δ: {volume_delta:.0f})"
+        
+        if absorption_detected:
+            base_analysis += " 🔍 Institutional absorption detected"
+        
+        return base_analysis
     
     def get_entry_quality(self, current_price: float, direction: str,
                          order_flow_data: Dict) -> Dict:
