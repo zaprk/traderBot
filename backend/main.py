@@ -252,23 +252,30 @@ async def auto_trading_loop():
             # Get batch decisions from LLM
             try:
                 logger.info("🧠 Calling DeepSeek AI for batch analysis...")
-                decisions = llm_agent.get_batch_decisions(
+                response = llm_agent.get_batch_decisions(
                     symbols_data=symbols_indicators,
                     balance=balance,
                     risk_pct=settings.risk_per_trade,
                     sentiment_data=sentiment_data
                 )
-                logger.info(f"✅ Auto-trading: Received decisions for {len(decisions) if decisions else 0} symbols")
+                
+                # Extract decisions from response
+                if not response:
+                    logger.warning("No response returned from AI")
+                    continue
+                
+                decisions = response.get('decisions', {})
+                logger.info(f"✅ Auto-trading: Received decisions for {len(decisions)} symbols")
                 
                 if not decisions:
-                    logger.warning("No decisions returned from AI")
+                    logger.warning("No decisions in response from AI")
                     continue
                 
                 # Log AI reasoning for persistence
                 log_llm_reasoning(
                     symbol=list(market_data_batch.keys()),
                     decision=decisions,
-                    full_response=decisions  # Full response for logging
+                    full_response=response  # Full response with reasoning
                 )
                 logger.info("💾 AI reasoning logged to persistent storage")
                 
