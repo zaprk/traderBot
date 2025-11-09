@@ -121,14 +121,16 @@ def initialize_system():
 
 # Background task for monitoring positions (checks SL/TP)
 async def position_monitor_loop():
-    """🎯 ADVANCED Position Monitor - Trailing stops, partial exits, dynamic risk management"""
+    """🚨 ENHANCED Position Monitor - STRICT SL/TP enforcement, checks every 10 seconds"""
     # Wait for system to initialize
     await asyncio.sleep(15)
-    logger.info("🎯 Advanced position monitor started - checking every 30 seconds")
+    logger.info("🚨 ENHANCED position monitor started - checking every 10 seconds (STRICT MODE)")
     
+    check_count = 0
     while True:
         try:
-            await asyncio.sleep(30)  # Check every 30 seconds
+            await asyncio.sleep(10)  # ⚡ Check every 10 seconds (was 30 - 3x faster!)
+            check_count += 1
             
             # Check if exchange and trade_manager are initialized
             if not exchange or not trade_manager:
@@ -138,72 +140,125 @@ async def position_monitor_loop():
             open_positions_dict = trade_manager.get_open_positions()
             
             if not open_positions_dict:
+                # Log every 6th check (once per minute) to avoid spam
+                if check_count % 6 == 0:
+                    logger.info(f"📊 Position monitor check #{check_count}: No open positions")
                 continue  # No positions to monitor
             
-            # 🎯 ADVANCED POSITION MANAGEMENT
+            # Log when checking positions
+            if check_count % 6 == 0:  # Every minute
+                logger.info(f"🔍 Check #{check_count}: Monitoring {len(open_positions_dict)} open position(s)")
+            
+            # 🚨 ENHANCED POSITION MANAGEMENT (STRICT MODE)
+            from bot.position_monitor_v2 import enhanced_position_monitor
+            
             for position_id, position in open_positions_dict.items():
                 symbol = position['symbol']
                 
                 try:
-                    # Fetch current price and ATR
+                    # Fetch current price
                     formatted_symbol = format_symbol(symbol)
                     ticker = exchange.fetch_ticker(formatted_symbol)
                     current_price = ticker['last']
                     
-                    # Get current ATR from 1h timeframe
-                    data_1h = fetch_multi_timeframes(exchange, formatted_symbol, timeframes=['1h'])
-                    if data_1h and '1h' in data_1h:
-                        indicators_1h = calculate_all_indicators(data_1h['1h'])
-                        atr = indicators_1h.get('atr', 0)
-                    else:
-                        atr = 0
+                    # 🚨 CRITICAL: CHECK POSITION HEALTH FIRST (SL/TP enforcement)
+                    health_check = enhanced_position_monitor.check_position_health(
+                        symbol, position, current_price
+                    )
                     
-                    # 🎯 APPLY ADVANCED POSITION MANAGEMENT
-                    action = position_monitor.manage_position(symbol, position, current_price, atr)
+                    # Log position status every minute or when in danger
+                    if check_count % 6 == 0 or health_check['status'] in ['danger', 'stop_hit', 'target_hit']:
+                        logger.info(
+                            f"💊 {symbol}: {health_check['status'].upper()} - "
+                            f"${current_price:.2f} - {health_check['reason']}"
+                        )
+                    
+                    # 🛑 IMMEDIATE ACTION: CLOSE IF SL/TP HIT
+                    if health_check['status'] in ['stop_hit', 'target_hit']:
+                        action = {
+                            'action': 'close',
+                            'price': health_check['price'],
+                            'reason': health_check['reason']
+                        }
+                    else:
+                        # Get current ATR for trailing stop calculation
+                        data_1h = fetch_multi_timeframes(exchange, formatted_symbol, timeframes=['1h'])
+                        if data_1h and '1h' in data_1h:
+                            indicators_1h = calculate_all_indicators(data_1h['1h'])
+                            atr = indicators_1h.get('atr', 0)
+                        else:
+                            atr = 0
+                        
+                        # Check for trailing stop update
+                        new_stop = enhanced_position_monitor.update_trailing_stop(
+                            symbol, position, current_price, atr
+                        )
+                        
+                        if new_stop:
+                            action = {
+                                'action': 'update_stop',
+                                'new_stop': new_stop
+                            }
+                        else:
+                            action = {'action': 'hold'}
                     
                     # Handle different actions
                     if action['action'] == 'close':
-                        # Close entire position
+                        # 🚨 CLOSE POSITION IMMEDIATELY
                         db.update_trade(position_id, {
                             'status': 'closed',
                             'exit_price': action['price'],
                             'exit_time': datetime.now().isoformat(),
                             'exit_reason': action['reason']
                         })
+                        
                         # Calculate P&L
                         if position['side'] == 'long':
                             pnl_usd = (action['price'] - position['entry_price']) * position['units']
+                            pnl_pct = ((action['price'] - position['entry_price']) / position['entry_price']) * 100
                         else:
                             pnl_usd = (position['entry_price'] - action['price']) * position['units']
+                            pnl_pct = ((position['entry_price'] - action['price']) / position['entry_price']) * 100
                         
                         log_trade_to_csv({**position, 'exit_price': action['price'], 'pnl_usd': pnl_usd})
-                        logger.info(f"🛑 Position closed: {symbol} {action['reason']} @ ${action['price']:.2f} - P&L: ${pnl_usd:.2f}")
+                        
+                        # Enhanced logging with color coding
+                        if pnl_usd >= 0:
+                            logger.info(
+                                f"✅ Position closed: {symbol} {position['side'].upper()} - "
+                                f"{action['reason']} @ ${action['price']:.2f} - "
+                                f"P&L: ${pnl_usd:.2f} ({pnl_pct:+.2f}%)"
+                            )
+                        else:
+                            logger.warning(
+                                f"❌ Position closed: {symbol} {position['side'].upper()} - "
+                                f"{action['reason']} @ ${action['price']:.2f} - "
+                                f"P&L: ${pnl_usd:.2f} ({pnl_pct:+.2f}%)"
+                            )
                         
                         # Reset tracking
-                        position_monitor.reset_position_tracking(symbol)
-                    
-                    elif action['action'] == 'partial_exit':
-                        # Execute partial exits (in paper trading, just log it)
-                        for exit in action['exits']:
-                            logger.info(f"💰 {symbol}: {exit['reason']}")
+                        enhanced_position_monitor.reset_position_tracking(symbol)
                     
                     elif action['action'] == 'update_stop':
                         # Update trailing stop in database
                         db.update_trade(position_id, {
                             'stop_loss': action['new_stop']
                         })
-                        logger.info(f"📈 {symbol}: Stop updated to ${action['new_stop']:.2f}")
+                        logger.info(f"📈 {symbol}: Trailing stop updated to ${action['new_stop']:.2f}")
                     
                     elif action['action'] == 'hold':
-                        # Just monitoring
+                        # Just monitoring - position is safe
                         pass
                 
                 except Exception as e:
-                    logger.error(f"Error managing position for {symbol}: {e}")
+                    logger.error(f"❌ Error managing position for {symbol}: {e}", exc_info=True)
+                    # Continue checking other positions even if one fails
+                    continue
                     
         except Exception as e:
-            logger.error(f"Error in position monitor loop: {e}")
-            await asyncio.sleep(30)
+            logger.error(f"❌ CRITICAL ERROR in position monitor loop: {e}", exc_info=True)
+            logger.error("⚠️ Position monitoring loop crashed! Restarting in 10 seconds...")
+            await asyncio.sleep(10)  # Short delay before restarting
 
 
 # Background task for auto-trading
