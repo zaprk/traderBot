@@ -223,6 +223,72 @@ def market_structure(df: pd.DataFrame, lookback: int = 20) -> str:
         return "range"  # Ranging/consolidation
 
 
+def analyze_recent_momentum(df: pd.DataFrame, lookback: int = 3) -> Dict[str, any]:
+    """
+    🚨 FIX #2: Analyze recent price momentum from last N candles (most recent data)
+    CRITICAL: This catches momentum shifts that historical averages miss
+    
+    Args:
+        df: DataFrame with OHLCV data
+        lookback: Number of recent candles to analyze (default 3)
+    
+    Returns:
+        Dictionary with recent momentum analysis
+    """
+    if df.empty or len(df) < lookback:
+        return {
+            'recent_momentum_pct': 0.0,
+            'recent_direction': 'neutral',
+            'volume_spike': False,
+            'volume_direction': 'neutral',
+            'volume_ratio': 1.0,
+            'warning': None
+        }
+    
+    # Last N candles
+    recent = df.tail(lookback)
+    
+    # Calculate momentum from first to last close in recent window
+    first_close = recent.iloc[0]['close']
+    last_close = recent.iloc[-1]['close']
+    momentum_pct = ((last_close - first_close) / first_close) * 100
+    
+    # Direction
+    direction = 'bullish' if momentum_pct > 0.3 else 'bearish' if momentum_pct < -0.3 else 'neutral'
+    
+    # Volume spike detection
+    current_volume = df.iloc[-1]['volume']
+    # Compare to previous 5 candles (excluding current)
+    if len(df) >= 6:
+        recent_avg_volume = df.iloc[-6:-1]['volume'].mean()
+        volume_ratio = current_volume / recent_avg_volume if recent_avg_volume > 0 else 1.0
+        volume_spike = volume_ratio > 2.0  # 2x or more is a spike
+    else:
+        volume_ratio = 1.0
+        volume_spike = False
+    
+    # Volume direction (is the current candle bullish or bearish?)
+    current_candle = df.iloc[-1]
+    volume_direction = 'bullish' if current_candle['close'] >= current_candle['open'] else 'bearish'
+    
+    # Generate warning if volume spike contradicts historical trend
+    warning = None
+    if volume_spike:
+        if volume_direction == 'bullish' and abs(momentum_pct) > 0.3:
+            warning = f"🔥 BULLISH volume spike ({volume_ratio:.1f}x) - Recent momentum: {momentum_pct:+.2f}%"
+        elif volume_direction == 'bearish' and abs(momentum_pct) > 0.3:
+            warning = f"🔻 BEARISH volume spike ({volume_ratio:.1f}x) - Recent momentum: {momentum_pct:+.2f}%"
+    
+    return {
+        'recent_momentum_pct': round(momentum_pct, 2),
+        'recent_direction': direction,
+        'volume_spike': volume_spike,
+        'volume_direction': volume_direction,
+        'volume_ratio': round(volume_ratio, 2),
+        'warning': warning
+    }
+
+
 def analyze_candle(df: pd.DataFrame) -> Dict[str, any]:
     """
     Analyze the most recent candle pattern and momentum

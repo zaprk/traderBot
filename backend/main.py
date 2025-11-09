@@ -272,12 +272,27 @@ async def auto_trading_loop():
                         # 💧 ORDER FLOW & LIQUIDITY ANALYSIS
                         order_flow = order_flow_analyzer.analyze_order_flow(data['1h'])
                         
+                        # 🚨 FIX #2: RECENT MOMENTUM ANALYSIS (last 3 candles on 5m)
+                        from bot.indicators import analyze_recent_momentum
+                        recent_momentum_5m = analyze_recent_momentum(data['5m'], lookback=3)
+                        recent_momentum_15m = analyze_recent_momentum(data['15m'], lookback=3)
+                        
+                        # Log warnings if volume spike detected
+                        if recent_momentum_5m['warning']:
+                            logger.warning(f"⚡ {symbol} (5m): {recent_momentum_5m['warning']}")
+                        if recent_momentum_15m['warning']:
+                            logger.warning(f"⚡ {symbol} (15m): {recent_momentum_15m['warning']}")
+                        
                         market_data_batch[symbol] = {
                             'indicators': indicators_multi_tf,
                             'current_price': get_current_price(exchange, symbol),
                             'breakout': breakout_15m,
                             'convergence': convergence_analysis,
                             'order_flow': order_flow,
+                            'recent_momentum': {
+                                '5m': recent_momentum_5m,
+                                '15m': recent_momentum_15m
+                            },
                             'raw_data': data  # Keep raw data for position monitoring
                         }
                         
@@ -407,6 +422,23 @@ async def auto_trading_loop():
                     confidence = decision.get('confidence', 0)
                     
                     if action in ['long', 'short'] and confidence > 0.7:
+                        # 🚨 FIX #1: MOMENTUM CONFLICT CHECK (prevent trading against recent momentum)
+                        if symbol in filtered_symbols:
+                            indicators_multi_tf = filtered_symbols[symbol]['indicators']
+                            momentum_check = convergence_scorer.check_momentum_conflict(
+                                indicators_multi_tf, action
+                            )
+                            
+                            if momentum_check['has_conflict']:
+                                logger.warning(
+                                    f"⚠️ {symbol}: SKIPPING {action.upper()} - "
+                                    f"Momentum conflict: {', '.join(momentum_check['conflicts'])}"
+                                )
+                                logger.warning(
+                                    f"   Lower TF momentum: {momentum_check['lower_tf_momentum']}"
+                                )
+                                continue
+                        
                         # 💧 ORDER FLOW QUALITY CHECK
                         if symbol in filtered_symbols:
                             order_flow = filtered_symbols[symbol]['order_flow']
