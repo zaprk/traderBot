@@ -93,6 +93,69 @@ def atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
     return atr_values
 
 
+def adx(df: pd.DataFrame, period: int = 14) -> Tuple[pd.Series, str]:
+    """
+    Calculate Average Directional Index (ADX) - Trend Strength Indicator
+    
+    ADX measures trend strength on a scale of 0-100:
+    - ADX < 20: Weak trend / Ranging market (avoid trading)
+    - ADX 20-25: Developing trend (cautious)
+    - ADX > 25: Strong trend (ideal for trading)
+    - ADX > 40: Very strong trend
+    
+    Args:
+        df: DataFrame with high, low, close columns
+        period: ADX period (default 14)
+    
+    Returns:
+        Tuple of (adx_values, regime_classification)
+    """
+    high = df['high']
+    low = df['low']
+    close = df['close']
+    
+    # Calculate +DM and -DM (Directional Movement)
+    high_diff = high.diff()
+    low_diff = -low.diff()
+    
+    plus_dm = pd.Series(0.0, index=df.index)
+    minus_dm = pd.Series(0.0, index=df.index)
+    
+    plus_dm[(high_diff > low_diff) & (high_diff > 0)] = high_diff
+    minus_dm[(low_diff > high_diff) & (low_diff > 0)] = low_diff
+    
+    # Calculate True Range
+    tr1 = high - low
+    tr2 = abs(high - close.shift())
+    tr3 = abs(low - close.shift())
+    true_range = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    
+    # Smooth the values
+    atr_smoothed = true_range.rolling(window=period).mean()
+    plus_di = 100 * (plus_dm.rolling(window=period).mean() / atr_smoothed)
+    minus_di = 100 * (minus_dm.rolling(window=period).mean() / atr_smoothed)
+    
+    # Calculate DX (Directional Movement Index)
+    dx = 100 * abs(plus_di - minus_di) / (plus_di + minus_di)
+    
+    # Calculate ADX (smoothed DX)
+    adx_values = dx.rolling(window=period).mean()
+    
+    # Classify market regime based on latest ADX
+    latest_adx = adx_values.iloc[-1] if len(adx_values) > 0 and not pd.isna(adx_values.iloc[-1]) else 0
+    
+    if latest_adx < 20:
+        regime = "RANGING"  # Weak trend, choppy market
+    elif latest_adx < 25:
+        regime = "TRANSITION"  # Developing trend
+    elif latest_adx < 40:
+        regime = "TRENDING"  # Strong trend
+    else:
+        regime = "STRONG_TREND"  # Very strong trend
+    
+    return adx_values, regime
+
+
 def volume_change_pct(df: pd.DataFrame, window: int = 24) -> float:
     """
     Calculate volume change percentage compared to average
@@ -334,6 +397,8 @@ def calculate_all_indicators(df: pd.DataFrame) -> Dict[str, any]:
             'ema_50': None,
             'ema_200': None,
             'atr': None,
+            'adx': 0,
+            'adx_regime': 'UNKNOWN',
             'last_close': None,
             'volume_change': 0.0,
             'market_structure': 'insufficient_data'
@@ -348,6 +413,7 @@ def calculate_all_indicators(df: pd.DataFrame) -> Dict[str, any]:
     ema_50 = ema(close, 50)
     ema_200 = ema(close, 200)
     atr_values = atr(df, 14)
+    adx_values, regime = adx(df, 14)
     vol_change = volume_change_pct(df, 24)
     structure = market_structure(df, 20)
     
@@ -362,6 +428,8 @@ def calculate_all_indicators(df: pd.DataFrame) -> Dict[str, any]:
         'ema_50': round(float(ema_50.iloc[latest_idx]), 2) if not pd.isna(ema_50.iloc[latest_idx]) else None,
         'ema_200': round(float(ema_200.iloc[latest_idx]), 2) if not pd.isna(ema_200.iloc[latest_idx]) else None,
         'atr': round(float(atr_values.iloc[latest_idx]), 2) if not pd.isna(atr_values.iloc[latest_idx]) else None,
+        'adx': round(float(adx_values.iloc[latest_idx]), 2) if not pd.isna(adx_values.iloc[latest_idx]) else 0,
+        'adx_regime': regime,
         'last_close': round(float(close.iloc[latest_idx]), 2),
         'volume_change': float(vol_change),
         'market_structure': structure

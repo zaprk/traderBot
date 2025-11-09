@@ -25,6 +25,8 @@ from bot.position_monitor import position_monitor
 from bot.breakout_detector import breakout_detector
 from bot.convergence_scorer import convergence_scorer
 from bot.order_flow import order_flow_analyzer
+from bot.regime_filter import regime_filter
+from bot.correlation_filter import correlation_filter
 from config import settings
 
 # Setup logging
@@ -293,6 +295,27 @@ async def auto_trading_loop():
                 logger.error("No market data available for auto-trading")
                 continue
             
+            # 🎯 REGIME FILTER: Skip symbols in ranging markets (ADX < 20)
+            if settings.enable_regime_filter:
+                regime_analysis = regime_filter.analyze_market_conditions(market_data_batch)
+                logger.info(f"📊 Market Regimes: {regime_analysis['regimes']}, Avg ADX: {regime_analysis['avg_adx']}, Overall: {regime_analysis['overall_state']}")
+                
+                market_data_batch = regime_filter.filter_symbols(market_data_batch)
+                
+                if not market_data_batch:
+                    logger.warning("⚠️ REGIME FILTER: All symbols are ranging (ADX < 20) - Skipping cycle to avoid chop")
+                    # Still wait before next cycle
+                    wait_interval = 900  # 15 min default
+                    wait_minutes = wait_interval // 60
+                    logger.info(f"⏰ Waiting {wait_minutes} minutes for market to trend...")
+                    try:
+                        await asyncio.wait_for(auto_trading_event.wait(), timeout=wait_interval)
+                        auto_trading_event.clear()
+                        logger.info("🔄 Auto-trading re-triggered early!")
+                    except asyncio.TimeoutError:
+                        logger.info(f"⏰ {wait_minutes} minutes passed, starting next cycle...")
+                    continue
+            
             # ⚡ ADAPTIVE VOLATILITY TIMING
             optimal_interval, volatility_regime = volatility_monitor.get_optimal_interval(market_data_batch)
             logger.info(f"⚡ Market volatility: {volatility_regime} → Next analysis in {optimal_interval//60} minutes")
@@ -399,6 +422,25 @@ async def auto_trading_loop():
                             if entry_quality['score'] < 50:
                                 logger.warning(f"⚠️ {symbol}: Skipping trade due to poor entry quality")
                                 continue
+                        
+                        # 🔗 CORRELATION FILTER: Check if new position correlates with existing
+                        if settings.enable_correlation_filter:
+                            # Get current open positions
+                            open_positions = db.get_open_positions()
+                            
+                            # Check correlation
+                            allowed, reason = correlation_filter.check_new_signal(symbol, action, open_positions)
+                            logger.info(f"🔗 {symbol}: {reason}")
+                            
+                            if not allowed:
+                                logger.warning(f"⚠️ {symbol}: Skipping trade - correlation limit reached")
+                                continue
+                            
+                            # Log portfolio risk analysis
+                            if open_positions:
+                                risk_analysis = correlation_filter.analyze_portfolio_risk(open_positions)
+                                if risk_analysis['warning']:
+                                    logger.warning(risk_analysis['warning'])
                         
                         high_confidence_count += 1
                         logger.info(f"🎯 High confidence trade opportunity: {symbol} {action.upper()} (confidence={confidence})")

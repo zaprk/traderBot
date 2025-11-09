@@ -18,9 +18,16 @@ class Settings(BaseSettings):
     initial_balance: float = 10000.0
     
     # Risk Management
-    risk_per_trade: float = 0.07
+    risk_per_trade: float = 0.02  # 2% default (PROFESSIONAL STANDARD)
+    # ⚠️ Advanced users can set higher (up to 7%), but understand the risks:
+    # - 2% risk = Professional standard, stable growth
+    # - 7% risk = Aggressive, 3 losses = 21% drawdown
     max_daily_loss: float = 0.10
     max_open_positions: int = 3
+    # Correlation & Regime Filters
+    enable_regime_filter: bool = True  # Skip ranging markets (ADX < 20)
+    enable_correlation_filter: bool = True  # Max 2 correlated positions
+    min_adx_threshold: float = 20.0  # Minimum ADX for trading
     max_exposure: float = 0.20
     min_rr: float = 1.3
     max_allowable_stop_pct: float = 0.10
