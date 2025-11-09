@@ -121,16 +121,14 @@ def initialize_system():
 
 # Background task for monitoring positions (checks SL/TP)
 async def position_monitor_loop():
-    """🚨 ENHANCED Position Monitor - STRICT SL/TP enforcement, checks every 10 seconds"""
+    """🎯 ADVANCED Position Monitor - Trailing stops, partial exits, dynamic risk management"""
     # Wait for system to initialize
     await asyncio.sleep(15)
-    logger.info("🚨 ENHANCED position monitor started - checking every 10 seconds (STRICT MODE)")
+    logger.info("🎯 Advanced position monitor started - checking every 30 seconds")
     
-    check_count = 0
     while True:
         try:
-            await asyncio.sleep(10)  # ⚡ Check every 10 seconds (was 30 - 3x faster!)
-            check_count += 1
+            await asyncio.sleep(30)  # Check every 30 seconds
             
             # Check if exchange and trade_manager are initialized
             if not exchange or not trade_manager:
@@ -140,125 +138,96 @@ async def position_monitor_loop():
             open_positions_dict = trade_manager.get_open_positions()
             
             if not open_positions_dict:
-                # Log every 6th check (once per minute) to avoid spam
-                if check_count % 6 == 0:
-                    logger.info(f"📊 Position monitor check #{check_count}: No open positions")
                 continue  # No positions to monitor
             
-            # Log when checking positions
-            if check_count % 6 == 0:  # Every minute
-                logger.info(f"🔍 Check #{check_count}: Monitoring {len(open_positions_dict)} open position(s)")
-            
-            # 🚨 ENHANCED POSITION MANAGEMENT (STRICT MODE)
-            from bot.position_monitor_v2 import enhanced_position_monitor
-            
+            # 🎯 ADVANCED POSITION MANAGEMENT
             for position_id, position in open_positions_dict.items():
                 symbol = position['symbol']
                 
                 try:
-                    # Fetch current price
+                    # Fetch current price and ATR
                     formatted_symbol = format_symbol(symbol)
                     ticker = exchange.fetch_ticker(formatted_symbol)
                     current_price = ticker['last']
                     
-                    # 🚨 CRITICAL: CHECK POSITION HEALTH FIRST (SL/TP enforcement)
-                    health_check = enhanced_position_monitor.check_position_health(
-                        symbol, position, current_price
-                    )
-                    
-                    # Log position status every minute or when in danger
-                    if check_count % 6 == 0 or health_check['status'] in ['danger', 'stop_hit', 'target_hit']:
-                        logger.info(
-                            f"💊 {symbol}: {health_check['status'].upper()} - "
-                            f"${current_price:.2f} - {health_check['reason']}"
+                    # Get current ATR from 1h timeframe
+                    data_1h = fetch_multi_timeframes(exchange, formatted_symbol, timeframes=['1h'])
+                    if data_1h and '1h' in data_1h:
+                        indicators_1h = calculate_all_indicators(data_1h['1h'])
+                        atr = indicators_1h.get('atr', 0)
+                        
+                        # 🚀 CHECK FOR BREAKOUT AGAINST POSITION (reversal opportunity)
+                        from bot.realtime_breakout_monitor import realtime_breakout_monitor
+                        
+                        # Calculate volume ratio
+                        if len(data_1h['1h']) >= 2:
+                            current_volume = data_1h['1h'].iloc[-1]['volume']
+                            avg_volume = data_1h['1h'].iloc[-20:-1]['volume'].mean() if len(data_1h['1h']) >= 20 else current_volume
+                        else:
+                            current_volume = 0
+                            avg_volume = 1
+                        
+                        # Check for reversal opportunity
+                        reversal_signal = realtime_breakout_monitor.check_position_breakout(
+                            position, current_price, current_volume, avg_volume
                         )
-                    
-                    # 🛑 IMMEDIATE ACTION: CLOSE IF SL/TP HIT
-                    if health_check['status'] in ['stop_hit', 'target_hit']:
-                        action = {
-                            'action': 'close',
-                            'price': health_check['price'],
-                            'reason': health_check['reason']
-                        }
+                        
+                        if reversal_signal:
+                            logger.warning(
+                                f"🔄 {symbol}: {reversal_signal['recommendation']} "
+                                f"(Volume: {reversal_signal['volume_ratio']:.1f}x)"
+                            )
+                            # Note: In production, you could trigger immediate analysis here
+                            # For now, we just log the opportunity
                     else:
-                        # Get current ATR for trailing stop calculation
-                        data_1h = fetch_multi_timeframes(exchange, formatted_symbol, timeframes=['1h'])
-                        if data_1h and '1h' in data_1h:
-                            indicators_1h = calculate_all_indicators(data_1h['1h'])
-                            atr = indicators_1h.get('atr', 0)
-                        else:
-                            atr = 0
-                        
-                        # Check for trailing stop update
-                        new_stop = enhanced_position_monitor.update_trailing_stop(
-                            symbol, position, current_price, atr
-                        )
-                        
-                        if new_stop:
-                            action = {
-                                'action': 'update_stop',
-                                'new_stop': new_stop
-                            }
-                        else:
-                            action = {'action': 'hold'}
+                        atr = 0
+                    
+                    # 🎯 APPLY ADVANCED POSITION MANAGEMENT
+                    action = position_monitor.manage_position(symbol, position, current_price, atr)
                     
                     # Handle different actions
                     if action['action'] == 'close':
-                        # 🚨 CLOSE POSITION IMMEDIATELY
+                        # Close entire position
                         db.update_trade(position_id, {
                             'status': 'closed',
                             'exit_price': action['price'],
                             'exit_time': datetime.now().isoformat(),
                             'exit_reason': action['reason']
                         })
-                        
                         # Calculate P&L
                         if position['side'] == 'long':
                             pnl_usd = (action['price'] - position['entry_price']) * position['units']
-                            pnl_pct = ((action['price'] - position['entry_price']) / position['entry_price']) * 100
                         else:
                             pnl_usd = (position['entry_price'] - action['price']) * position['units']
-                            pnl_pct = ((position['entry_price'] - action['price']) / position['entry_price']) * 100
                         
                         log_trade_to_csv({**position, 'exit_price': action['price'], 'pnl_usd': pnl_usd})
-                        
-                        # Enhanced logging with color coding
-                        if pnl_usd >= 0:
-                            logger.info(
-                                f"✅ Position closed: {symbol} {position['side'].upper()} - "
-                                f"{action['reason']} @ ${action['price']:.2f} - "
-                                f"P&L: ${pnl_usd:.2f} ({pnl_pct:+.2f}%)"
-                            )
-                        else:
-                            logger.warning(
-                                f"❌ Position closed: {symbol} {position['side'].upper()} - "
-                                f"{action['reason']} @ ${action['price']:.2f} - "
-                                f"P&L: ${pnl_usd:.2f} ({pnl_pct:+.2f}%)"
-                            )
+                        logger.info(f"🛑 Position closed: {symbol} {action['reason']} @ ${action['price']:.2f} - P&L: ${pnl_usd:.2f}")
                         
                         # Reset tracking
-                        enhanced_position_monitor.reset_position_tracking(symbol)
+                        position_monitor.reset_position_tracking(symbol)
+                    
+                    elif action['action'] == 'partial_exit':
+                        # Execute partial exits (in paper trading, just log it)
+                        for exit in action['exits']:
+                            logger.info(f"💰 {symbol}: {exit['reason']}")
                     
                     elif action['action'] == 'update_stop':
                         # Update trailing stop in database
                         db.update_trade(position_id, {
                             'stop_loss': action['new_stop']
                         })
-                        logger.info(f"📈 {symbol}: Trailing stop updated to ${action['new_stop']:.2f}")
+                        logger.info(f"📈 {symbol}: Stop updated to ${action['new_stop']:.2f}")
                     
                     elif action['action'] == 'hold':
-                        # Just monitoring - position is safe
+                        # Just monitoring
                         pass
                 
                 except Exception as e:
-                    logger.error(f"❌ Error managing position for {symbol}: {e}", exc_info=True)
-                    # Continue checking other positions even if one fails
-                    continue
+                    logger.error(f"Error managing position for {symbol}: {e}")
                     
         except Exception as e:
-            logger.error(f"❌ CRITICAL ERROR in position monitor loop: {e}", exc_info=True)
-            logger.error("⚠️ Position monitoring loop crashed! Restarting in 10 seconds...")
-            await asyncio.sleep(10)  # Short delay before restarting
+            logger.error(f"Error in position monitor loop: {e}")
+            await asyncio.sleep(30)
 
 
 # Background task for auto-trading
@@ -350,6 +319,34 @@ async def auto_trading_loop():
                             },
                             'raw_data': data  # Keep raw data for position monitoring
                         }
+                        
+                        # 🚀 UPDATE REALTIME BREAKOUT TRACKING
+                        from bot.realtime_breakout_monitor import realtime_breakout_monitor
+                        
+                        # Update tracked range for this symbol (uses 15m high/low from last 20 candles)
+                        recent_15m = data['15m'].tail(20)
+                        tracked_high = recent_15m['high'].max()
+                        tracked_low = recent_15m['low'].min()
+                        realtime_breakout_monitor.update_tracking(symbol, tracked_high, tracked_low)
+                        
+                        # Check if current price represents a breakout
+                        current_candle = data['15m'].iloc[-1]
+                        breakout_signal = realtime_breakout_monitor.check_breakout(
+                            symbol,
+                            current_price=current_candle['close'],
+                            current_volume=current_candle['volume'],
+                            avg_volume=data['15m'].iloc[-20:-1]['volume'].mean(),
+                            indicators=indicators_15m
+                        )
+                        
+                        if breakout_signal:
+                            logger.warning(
+                                f"🚀 {symbol}: {breakout_signal['type'].upper().replace('_', ' ')} "
+                                f"at ${breakout_signal['current_price']:.2f} "
+                                f"(broke ${breakout_signal['breakout_level']:.2f}, "
+                                f"volume {breakout_signal['volume_ratio']:.1f}x, "
+                                f"strength: {breakout_signal['strength']})"
+                            )
                         
                         # Log high-conviction signals
                         if convergence_analysis['has_clear_edge'] and convergence_analysis['best_direction'] != 'none':
