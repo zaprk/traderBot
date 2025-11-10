@@ -638,9 +638,14 @@ async def startup_event():
     
     initialize_system()
     
-    # Initialize Market Memory System
-    market_memory = initialize_market_memory(db)
-    logger.info("🧠 Market Memory System initialized")
+    # Initialize Market Memory System (with error handling)
+    try:
+        market_memory = initialize_market_memory(db)
+        logger.info("🧠 Market Memory System initialized")
+    except Exception as e:
+        logger.error(f"⚠️ Failed to initialize Market Memory: {e}")
+        market_memory = None
+        logger.warning("Continuing without Market Memory (historical context disabled)")
     
     # Initialize auto_trading setting if not exists
     if db.get_setting('auto_trading') is None:

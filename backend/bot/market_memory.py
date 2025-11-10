@@ -5,7 +5,7 @@ Tracks historical context for institutional-grade trading decisions
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 
 logger = logging.getLogger(__name__)
@@ -348,7 +348,7 @@ class MarketMemory:
         else:
             recent_bias = "neutral"
         
-        time_diff = (datetime.utcnow() - datetime.fromisoformat(prev['timestamp'].replace('Z', '+00:00'))).seconds // 3600
+        time_diff = (datetime.now(timezone.utc) - datetime.fromisoformat(prev['timestamp'].replace('Z', '+00:00'))).seconds // 3600
         
         summary = f"Last analysis {time_diff}h ago: {prev_action.upper()} at ${prev_price:.2f} ({prev_trend or 'unknown trend'}). "
         summary += f"Price moved {price_change_pct:+.2f}% since then. "
