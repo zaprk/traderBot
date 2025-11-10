@@ -241,6 +241,11 @@ async def auto_trading_loop():
     while True:
         try:
             # Check if auto-trading is enabled (check BEFORE sleep so it runs immediately when enabled)
+            if not db:
+                logger.error("Database not available, auto-trading disabled")
+                await asyncio.sleep(60)
+                continue
+            
             auto_trading = db.get_setting('auto_trading')
             if auto_trading != 'true':
                 logger.info("Auto-trading disabled, waiting for enable signal...")
@@ -636,19 +641,29 @@ async def startup_event():
     auto_trading_event = asyncio.Event()
     logger.info("Auto-trading event initialized")
     
-    initialize_system()
+    # Initialize system with error handling (non-blocking)
+    try:
+        initialize_system()
+        logger.info("✅ Trading system initialized successfully")
+    except Exception as e:
+        logger.error(f"⚠️ Failed to initialize trading system: {e}")
+        logger.warning("App will start but trading features may be unavailable")
     
     # Initialize Market Memory System (with error handling)
-    try:
-        market_memory = initialize_market_memory(db)
-        logger.info("🧠 Market Memory System initialized")
-    except Exception as e:
-        logger.error(f"⚠️ Failed to initialize Market Memory: {e}")
+    if db:
+        try:
+            market_memory = initialize_market_memory(db)
+            logger.info("🧠 Market Memory System initialized")
+        except Exception as e:
+            logger.error(f"⚠️ Failed to initialize Market Memory: {e}")
+            market_memory = None
+            logger.warning("Continuing without Market Memory (historical context disabled)")
+    else:
+        logger.warning("⚠️ Database not available, skipping Market Memory initialization")
         market_memory = None
-        logger.warning("Continuing without Market Memory (historical context disabled)")
     
     # Initialize auto_trading setting if not exists
-    if db.get_setting('auto_trading') is None:
+    if db and db.get_setting('auto_trading') is None:
         db.set_setting('auto_trading', 'false')
     
     # Start background tasks
@@ -710,6 +725,9 @@ async def get_balance():
 async def get_auto_trading():
     """Get auto-trading state"""
     try:
+        if not db:
+            return {"enabled": False, "auto_trading": False, "error": "Database not available"}
+        
         auto_trading = db.get_setting('auto_trading')
         return {
             "enabled": auto_trading == 'true',

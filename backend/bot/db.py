@@ -236,8 +236,36 @@ class Database:
     def __init__(self, db_url: str = None):
         # Use persistent storage when deployed
         if db_url is None:
-            db_dir = os.environ.get('DB_DIR', '/app/data')
-            os.makedirs(db_dir, exist_ok=True)
+            # Try multiple locations in order of preference
+            db_locations = [
+                os.environ.get('DB_DIR'),  # User-specified
+                '/data',  # Railway volume mount
+                '/app/data',  # App directory
+                '/tmp',  # Fallback to temp (not persistent but works)
+                '.'  # Current directory (last resort)
+            ]
+            
+            db_dir = None
+            for loc in db_locations:
+                if loc is None:
+                    continue
+                try:
+                    os.makedirs(loc, exist_ok=True)
+                    # Test write permissions
+                    test_file = os.path.join(loc, '.write_test')
+                    with open(test_file, 'w') as f:
+                        f.write('test')
+                    os.remove(test_file)
+                    db_dir = loc
+                    logger.info(f"Using database directory: {db_dir}")
+                    break
+                except Exception as e:
+                    logger.warning(f"Cannot use {loc}: {e}")
+                    continue
+            
+            if db_dir is None:
+                raise Exception("No writable directory found for database")
+            
             db_url = f"sqlite:///{db_dir}/trades.db"
         
         self.engine = create_engine(db_url, echo=False)
@@ -699,7 +727,14 @@ class Database:
             session.close()
 
 
-# Global database instance
-db = Database()
+# Global database instance (with error handling)
+try:
+    db = Database()
+    logger.info("✅ Database initialized successfully")
+except Exception as e:
+    logger.error(f"❌ Failed to initialize database: {e}")
+    logger.error("App will start but database features will be unavailable")
+    # Create a dummy db object that won't crash the app
+    db = None
 
 
