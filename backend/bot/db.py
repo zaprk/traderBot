@@ -4,7 +4,7 @@ Database models and session management using SQLAlchemy
 from sqlalchemy import create_engine, Column, Integer, String, Float, Boolean, DateTime, Text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import json
 import logging
 import os
@@ -353,7 +353,7 @@ class Database:
         """Add daily metric snapshot"""
         session = self.get_session()
         try:
-            today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+            today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
             
             # Calculate trade stats
             trades = session.query(Trade).filter(Trade.status == 'closed').all()
@@ -422,7 +422,7 @@ class Database:
             setting = session.query(SystemSettings).filter(SystemSettings.key == key).first()
             if setting:
                 setting.value = value
-                setting.updated_at = datetime.utcnow()
+                setting.updated_at = datetime.now(timezone.utc)
             else:
                 setting = SystemSettings(key=key, value=value)
                 session.add(setting)
@@ -456,7 +456,7 @@ class Database:
             
             if existing:
                 # Update existing level
-                existing.last_tested = datetime.utcnow()
+                existing.last_tested = datetime.now(timezone.utc)
                 existing.test_count += 1
                 existing.strength = strength  # Update strength
                 if metadata:
@@ -469,7 +469,7 @@ class Database:
                     price=price,
                     strength=strength,
                     timeframe=timeframe,
-                    first_detected=datetime.utcnow(),
+                    first_detected=datetime.now(timezone.utc),
                     test_count=0,
                     metadata=json.dumps(metadata) if metadata else None
                 )
@@ -514,7 +514,7 @@ class Database:
             
             for level in levels:
                 level.broken = True
-                level.broken_at = datetime.utcnow()
+                level.broken_at = datetime.now(timezone.utc)
             
             session.commit()
             return len(levels)
@@ -537,7 +537,7 @@ class Database:
                 price_high=price_high,
                 strength_score=strength_score,
                 volume_ratio=volume_ratio,
-                detected_at=datetime.utcnow(),
+                detected_at=datetime.now(timezone.utc),
                 mitigated=False,
                 still_valid=True
             )
@@ -556,7 +556,7 @@ class Database:
         """Get valid (unfilled) order blocks near current price"""
         session = self.get_session()
         try:
-            cutoff_date = datetime.utcnow() - __import__('datetime').timedelta(days=max_age_days)
+            cutoff_date = datetime.now(timezone.utc) - timedelta(days=max_age_days)
             
             blocks = session.query(OrderBlockHistory).filter(
                 OrderBlockHistory.symbol == symbol,
@@ -576,7 +576,7 @@ class Database:
             block = session.query(OrderBlockHistory).filter(OrderBlockHistory.id == block_id).first()
             if block:
                 block.mitigated = True
-                block.mitigated_at = datetime.utcnow()
+                block.mitigated_at = datetime.now(timezone.utc)
                 session.commit()
                 return True
             return False
@@ -594,7 +594,7 @@ class Database:
         try:
             snapshot = MarketRegimeHistory(
                 symbol=symbol,
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
                 regime=regime,
                 adx=adx,
                 trend_direction=trend_direction,
@@ -612,7 +612,7 @@ class Database:
         """Get recent regime history for a symbol"""
         session = self.get_session()
         try:
-            cutoff = datetime.utcnow() - __import__('datetime').timedelta(hours=hours)
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
             snapshots = session.query(MarketRegimeHistory).filter(
                 MarketRegimeHistory.symbol == symbol,
                 MarketRegimeHistory.timestamp >= cutoff
@@ -631,7 +631,7 @@ class Database:
         try:
             snapshot = AnalysisSnapshot(
                 symbol=symbol,
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
                 price=price,
                 action=action,
                 confidence=confidence,
@@ -652,7 +652,7 @@ class Database:
         """Get recent analysis snapshots for comparison"""
         session = self.get_session()
         try:
-            cutoff = datetime.utcnow() - __import__('datetime').timedelta(hours=hours)
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
             snapshots = session.query(AnalysisSnapshot).filter(
                 AnalysisSnapshot.symbol == symbol,
                 AnalysisSnapshot.timestamp >= cutoff
@@ -666,7 +666,7 @@ class Database:
         """Get recent trade performance for a symbol"""
         session = self.get_session()
         try:
-            cutoff = datetime.utcnow() - __import__('datetime').timedelta(days=days)
+            cutoff = datetime.now(timezone.utc) - timedelta(days=days)
             trades = session.query(Trade).filter(
                 Trade.symbol == symbol,
                 Trade.entry_time >= cutoff,
