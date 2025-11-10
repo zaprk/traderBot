@@ -124,7 +124,7 @@ class HistoricalLevel(Base):
     test_count = Column(Integer, default=0)  # How many times price tested this level
     broken = Column(Boolean, default=False)  # Has this level been broken?
     broken_at = Column(DateTime, nullable=True)
-    metadata = Column(Text, nullable=True)  # JSON: volume, distance from current price, etc.
+    meta_info = Column(Text, nullable=True)  # JSON: volume, distance from current price, etc. (renamed from metadata to avoid SQLAlchemy conflict)
     
     def to_dict(self):
         return {
@@ -139,7 +139,7 @@ class HistoricalLevel(Base):
             'test_count': self.test_count,
             'broken': self.broken,
             'broken_at': self.broken_at.isoformat() if self.broken_at else None,
-            'metadata': json.loads(self.metadata) if self.metadata else {}
+            'metadata': json.loads(self.meta_info) if self.meta_info else {}
         }
 
 
@@ -488,7 +488,7 @@ class Database:
                 existing.test_count += 1
                 existing.strength = strength  # Update strength
                 if metadata:
-                    existing.metadata = json.dumps(metadata)
+                    existing.meta_info = json.dumps(metadata)
             else:
                 # Create new level
                 level = HistoricalLevel(
@@ -499,7 +499,7 @@ class Database:
                     timeframe=timeframe,
                     first_detected=datetime.now(timezone.utc),
                     test_count=0,
-                    metadata=json.dumps(metadata) if metadata else None
+                    meta_info=json.dumps(metadata) if metadata else None
                 )
                 session.add(level)
             
