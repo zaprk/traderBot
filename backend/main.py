@@ -446,12 +446,19 @@ async def auto_trading_loop():
                 indicators = data['indicators']
                 order_flow = data['order_flow']
                 
-                # Update market memory with current data
-                market_memory.update_from_market_data(symbol, current_price, indicators, order_flow)
-                
-                # Get historical context for LLM
-                historical_context_batch[symbol] = market_memory.get_historical_context(symbol, current_price)
+                # Update market memory with current data (if initialized)
+                if market_memory:
+                    try:
+                        market_memory.update_from_market_data(symbol, current_price, indicators, order_flow)
+                        
+                        # Get historical context for LLM
+                        historical_context_batch[symbol] = market_memory.get_historical_context(symbol, current_price)
+                    except Exception as e:
+                        logger.warning(f"Market memory error for {symbol}: {e}")
+                        historical_context_batch[symbol] = None
             
+            # Filter out None values from historical context
+            historical_context_batch = {k: v for k, v in historical_context_batch.items() if v is not None}
             logger.info(f"✅ Historical context fetched for {len(historical_context_batch)} symbols")
             
             # Get batch decisions from LLM
@@ -463,7 +470,7 @@ async def auto_trading_loop():
                     risk_pct=settings.risk_per_trade,
                     sentiment_data=sentiment_data,
                     order_flow_data=order_flow_batch,
-                    historical_context=historical_context_batch
+                    historical_context=historical_context_batch if historical_context_batch else None
                 )
                 
                 # Extract decisions from response
@@ -492,12 +499,16 @@ async def auto_trading_loop():
                         current_price = filtered_symbols[symbol]['current_price']
                         convergence_data = filtered_symbols[symbol].get('convergence_data', {})
                         
-                        market_memory.save_analysis_snapshot(
-                            symbol=symbol,
-                            price=current_price,
-                            decision=decision,
-                            convergence_data=convergence_data
-                        )
+                        if market_memory:
+                            try:
+                                market_memory.save_analysis_snapshot(
+                                    symbol=symbol,
+                                    price=current_price,
+                                    decision=decision,
+                                    convergence_data=convergence_data
+                                )
+                            except Exception as e:
+                                logger.warning(f"Failed to save analysis snapshot for {symbol}: {e}")
                 
                 logger.info(f"🧠 Analysis snapshots saved for {len(decisions)} symbols")
                 
