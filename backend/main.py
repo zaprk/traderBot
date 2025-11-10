@@ -632,24 +632,24 @@ async def auto_trading_loop():
 
 
 # Startup event
-@app.on_event("startup")
-async def startup_event():
-    """Run on application startup"""
-    global auto_trading_event, market_memory
+async def delayed_initialization():
+    """Initialize system components after app starts (non-blocking)"""
+    global market_memory
     
-    # Initialize event for auto-trading signaling
-    auto_trading_event = asyncio.Event()
-    logger.info("Auto-trading event initialized")
+    logger.info("🔄 Starting delayed initialization...")
     
-    # Initialize system with error handling (non-blocking)
+    # Wait a bit to ensure HTTP server is fully up
+    await asyncio.sleep(2)
+    
+    # Initialize system with error handling
     try:
         initialize_system()
         logger.info("✅ Trading system initialized successfully")
     except Exception as e:
         logger.error(f"⚠️ Failed to initialize trading system: {e}")
-        logger.warning("App will start but trading features may be unavailable")
+        logger.warning("App will continue but trading features may be unavailable")
     
-    # Initialize Market Memory System (with error handling)
+    # Initialize Market Memory System
     if db:
         try:
             market_memory = initialize_market_memory(db)
@@ -657,20 +657,39 @@ async def startup_event():
         except Exception as e:
             logger.error(f"⚠️ Failed to initialize Market Memory: {e}")
             market_memory = None
-            logger.warning("Continuing without Market Memory (historical context disabled)")
     else:
         logger.warning("⚠️ Database not available, skipping Market Memory initialization")
         market_memory = None
     
-    # Initialize auto_trading setting if not exists
+    # Initialize auto_trading setting
     if db and db.get_setting('auto_trading') is None:
         db.set_setting('auto_trading', 'false')
     
-    # Start background tasks
+    logger.info("✅ Delayed initialization complete")
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Run on application startup - MINIMAL to ensure fast healthcheck response"""
+    global auto_trading_event, market_memory
+    
+    # Initialize event for auto-trading signaling
+    auto_trading_event = asyncio.Event()
+    
+    # Set market_memory to None initially
+    market_memory = None
+    
+    logger.info("🚀 DeepSeek Trader API starting...")
+    logger.info("✅ HTTP server ready - healthcheck will pass")
+    
+    # Defer ALL heavy initialization to background task
+    asyncio.create_task(delayed_initialization())
+    
+    # Start trading loops (they have their own delays)
     asyncio.create_task(auto_trading_loop())
     asyncio.create_task(position_monitor_loop())
     
-    logger.info("DeepSeek Trader API started successfully")
+    logger.info("✅ Startup complete - background tasks scheduled")
 
 
 # Health check
@@ -1227,5 +1246,8 @@ async def get_ai_logs(days: int = 7):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    import os
+    port = int(os.environ.get("PORT", 8000))
+    logger.info(f"🚀 Starting server on port {port}")
+    uvicorn.run(app, host="0.0.0.0", port=port)
 
