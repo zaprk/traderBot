@@ -393,9 +393,10 @@ JSON format:
         return True
     
     def build_batch_prompt(self, symbols_data: Dict[str, Dict], balance: float, risk_pct: float, 
-                          sentiment_data: Dict[str, Dict] = None, order_flow_data: Dict[str, Dict] = None) -> str:
+                          sentiment_data: Dict[str, Dict] = None, order_flow_data: Dict[str, Dict] = None,
+                          historical_context: Dict[str, Dict] = None) -> str:
         """
-        Build batch prompt for multiple symbols with sentiment and order flow data
+        Build batch prompt for multiple symbols with sentiment, order flow, and HISTORICAL CONTEXT
         
         Args:
             symbols_data: Dict mapping symbol to indicators_multi_tf
@@ -403,6 +404,7 @@ JSON format:
             risk_pct: Risk percentage per trade
             sentiment_data: Dict mapping symbol to sentiment info (optional)
             order_flow_data: Dict mapping symbol to order flow analysis (optional)
+            historical_context: Dict mapping symbol to historical memory data (optional)
         
         Returns:
             Formatted prompt string
@@ -521,10 +523,50 @@ JSON format:
                         f"  💧 Key Levels: Support ${nearest_support:.2f} (-{support_dist:.2f}%), "
                         f"Resistance ${nearest_resistance:.2f} (+{resistance_dist:.2f}%)"
                     )
+            
+            # 🧠 HISTORICAL CONTEXT (Market Memory)
+            if historical_context and symbol in historical_context:
+                context = historical_context[symbol]
+                
+                prompt_lines.append("\n  🧠 HISTORICAL CONTEXT:")
+                
+                # Performance feedback
+                if 'performance_summary' in context and context['performance_summary']:
+                    prompt_lines.append(f"  📊 Recent Performance: {context['performance_summary']}")
+                
+                # Regime history
+                if 'regime_summary' in context and context['regime_summary']:
+                    prompt_lines.append(f"  🌊 Market Regime: {context['regime_summary']}")
+                
+                # Previous analysis comparison
+                if 'analysis_diff' in context and context['analysis_diff']:
+                    prompt_lines.append(f"  📈 Previous Analysis: {context['analysis_diff']}")
+                
+                # Historical levels
+                historical_levels = context.get('historical_levels', [])
+                if historical_levels:
+                    tested_levels = [lvl for lvl in historical_levels if lvl['test_count'] > 2]
+                    if tested_levels:
+                        top_level = tested_levels[0]
+                        prompt_lines.append(
+                            f"  💎 Key Historical Level: {top_level['level_type'].upper()} at ${top_level['price']:.2f} "
+                            f"(tested {top_level['test_count']}x, {top_level['timeframe']} timeframe)"
+                        )
+                
+                # Unfilled order blocks
+                order_blocks = context.get('order_blocks', [])
+                if order_blocks:
+                    unfilled = [ob for ob in order_blocks if not ob['mitigated']]
+                    if unfilled:
+                        prompt_lines.append(
+                            f"  💰 {len(unfilled)} Unfilled Order Blocks from previous weeks "
+                            f"(institutional zones not yet filled)"
+                        )
         
         prompt_lines.append("\n" + "=" * 60)
         prompt_lines.append(
-            "\nSTRATEGY: Day trading with 2% risk per trade. ATR-based stops. "
+            "\n🎯 STRATEGY: Day trading with 2% risk per trade. ATR-based stops. "
+            "Use HISTORICAL CONTEXT to avoid repeating mistakes and respect institutional levels. "
             "Only recommend HIGH CONFIDENCE trades (>0.7). Think through each crypto carefully."
         )
         
@@ -559,9 +601,10 @@ JSON format:
         return None
     
     def get_batch_decisions(self, symbols_data: Dict[str, Dict], balance: float, risk_pct: float, 
-                           sentiment_data: Dict[str, Dict] = None, order_flow_data: Dict[str, Dict] = None) -> Optional[Dict]:
+                           sentiment_data: Dict[str, Dict] = None, order_flow_data: Dict[str, Dict] = None,
+                           historical_context: Dict[str, Dict] = None) -> Optional[Dict]:
         """
-        Get trading decisions for multiple symbols in one call
+        Get trading decisions for multiple symbols in one call with HISTORICAL CONTEXT
         
         Args:
             symbols_data: Dict mapping symbol to indicators_multi_tf
@@ -569,11 +612,12 @@ JSON format:
             risk_pct: Risk percentage per trade
             sentiment_data: Dict mapping symbol to sentiment info (optional)
             order_flow_data: Dict mapping symbol to order flow analysis (optional)
+            historical_context: Dict mapping symbol to historical memory data (optional)
         
         Returns:
             Dict with decisions for each symbol and summary
         """
-        prompt = self.build_batch_prompt(symbols_data, balance, risk_pct, sentiment_data, order_flow_data)
+        prompt = self.build_batch_prompt(symbols_data, balance, risk_pct, sentiment_data, order_flow_data, historical_context)
         logger.info(f"Generated batch prompt for {len(symbols_data)} symbols")
         logger.debug(f"Prompt:\n{prompt}")
         

@@ -27,6 +27,7 @@ from bot.convergence_scorer import convergence_scorer
 from bot.order_flow import order_flow_analyzer
 from bot.regime_filter import regime_filter
 from bot.correlation_filter import correlation_filter
+from bot.market_memory import initialize_market_memory, market_memory
 from config import settings
 
 # Setup logging
@@ -436,6 +437,23 @@ async def auto_trading_loop():
                 for symbol, data in filtered_symbols.items()
             }
             
+            # 🧠 FETCH HISTORICAL CONTEXT (Market Memory)
+            logger.info("🧠 Fetching historical context from Market Memory...")
+            historical_context_batch = {}
+            
+            for symbol, data in filtered_symbols.items():
+                current_price = data['current_price']
+                indicators = data['indicators']
+                order_flow = data['order_flow']
+                
+                # Update market memory with current data
+                market_memory.update_from_market_data(symbol, current_price, indicators, order_flow)
+                
+                # Get historical context for LLM
+                historical_context_batch[symbol] = market_memory.get_historical_context(symbol, current_price)
+            
+            logger.info(f"✅ Historical context fetched for {len(historical_context_batch)} symbols")
+            
             # Get batch decisions from LLM
             try:
                 logger.info("🧠 Calling DeepSeek AI for batch analysis...")
@@ -444,7 +462,8 @@ async def auto_trading_loop():
                     balance=balance,
                     risk_pct=settings.risk_per_trade,
                     sentiment_data=sentiment_data,
-                    order_flow_data=order_flow_batch
+                    order_flow_data=order_flow_batch,
+                    historical_context=historical_context_batch
                 )
                 
                 # Extract decisions from response
@@ -466,6 +485,21 @@ async def auto_trading_loop():
                     full_response=response  # Full response with reasoning
                 )
                 logger.info("💾 AI reasoning logged to persistent storage")
+                
+                # 🧠 SAVE ANALYSIS SNAPSHOTS (Market Memory)
+                for symbol, decision in decisions.items():
+                    if symbol in filtered_symbols:
+                        current_price = filtered_symbols[symbol]['current_price']
+                        convergence_data = filtered_symbols[symbol].get('convergence_data', {})
+                        
+                        market_memory.save_analysis_snapshot(
+                            symbol=symbol,
+                            price=current_price,
+                            decision=decision,
+                            convergence_data=convergence_data
+                        )
+                
+                logger.info(f"🧠 Analysis snapshots saved for {len(decisions)} symbols")
                 
                 # Execute high-confidence trades with ORDER FLOW QUALITY CHECK
                 high_confidence_count = 0
@@ -585,13 +619,17 @@ async def auto_trading_loop():
 @app.on_event("startup")
 async def startup_event():
     """Run on application startup"""
-    global auto_trading_event
+    global auto_trading_event, market_memory
     
     # Initialize event for auto-trading signaling
     auto_trading_event = asyncio.Event()
     logger.info("Auto-trading event initialized")
     
     initialize_system()
+    
+    # Initialize Market Memory System
+    market_memory = initialize_market_memory(db)
+    logger.info("🧠 Market Memory System initialized")
     
     # Initialize auto_trading setting if not exists
     if db.get_setting('auto_trading') is None:

@@ -109,6 +109,127 @@ class SystemSettings(Base):
         }
 
 
+class HistoricalLevel(Base):
+    """Historical support/resistance levels across timeframes"""
+    __tablename__ = 'historical_levels'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    symbol = Column(String(20), nullable=False, index=True)
+    level_type = Column(String(20), nullable=False)  # 'support', 'resistance', 'order_block'
+    price = Column(Float, nullable=False)
+    strength = Column(String(20), nullable=False)  # 'strong', 'moderate', 'weak'
+    timeframe = Column(String(10), nullable=False)  # 'daily', 'weekly', 'monthly', 'intraday'
+    first_detected = Column(DateTime, nullable=False)
+    last_tested = Column(DateTime, nullable=True)
+    test_count = Column(Integer, default=0)  # How many times price tested this level
+    broken = Column(Boolean, default=False)  # Has this level been broken?
+    broken_at = Column(DateTime, nullable=True)
+    metadata = Column(Text, nullable=True)  # JSON: volume, distance from current price, etc.
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'symbol': self.symbol,
+            'level_type': self.level_type,
+            'price': self.price,
+            'strength': self.strength,
+            'timeframe': self.timeframe,
+            'first_detected': self.first_detected.isoformat() if self.first_detected else None,
+            'last_tested': self.last_tested.isoformat() if self.last_tested else None,
+            'test_count': self.test_count,
+            'broken': self.broken,
+            'broken_at': self.broken_at.isoformat() if self.broken_at else None,
+            'metadata': json.loads(self.metadata) if self.metadata else {}
+        }
+
+
+class OrderBlockHistory(Base):
+    """Historical order blocks with mitigation tracking"""
+    __tablename__ = 'order_blocks'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    symbol = Column(String(20), nullable=False, index=True)
+    block_type = Column(String(20), nullable=False)  # 'bullish', 'bearish'
+    price_low = Column(Float, nullable=False)
+    price_high = Column(Float, nullable=False)
+    strength_score = Column(Integer, nullable=False)  # 0-100
+    volume_ratio = Column(Float, nullable=False)
+    detected_at = Column(DateTime, nullable=False)
+    mitigated = Column(Boolean, default=False)  # Has price returned to fill this block?
+    mitigated_at = Column(DateTime, nullable=True)
+    still_valid = Column(Boolean, default=True)  # False if broken or too old
+    candle_index = Column(Integer, nullable=True)  # Position in historical data
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'symbol': self.symbol,
+            'block_type': self.block_type,
+            'price_low': self.price_low,
+            'price_high': self.price_high,
+            'strength_score': self.strength_score,
+            'volume_ratio': self.volume_ratio,
+            'detected_at': self.detected_at.isoformat() if self.detected_at else None,
+            'mitigated': self.mitigated,
+            'mitigated_at': self.mitigated_at.isoformat() if self.mitigated_at else None,
+            'still_valid': self.still_valid
+        }
+
+
+class MarketRegimeHistory(Base):
+    """Historical market regime snapshots (trending vs ranging)"""
+    __tablename__ = 'market_regime_history'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    symbol = Column(String(20), nullable=False, index=True)
+    timestamp = Column(DateTime, nullable=False)
+    regime = Column(String(20), nullable=False)  # 'trending', 'ranging', 'volatile'
+    adx = Column(Float, nullable=True)
+    trend_direction = Column(String(10), nullable=True)  # 'up', 'down', 'neutral'
+    volatility = Column(String(20), nullable=True)  # 'high', 'normal', 'low'
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'symbol': self.symbol,
+            'timestamp': self.timestamp.isoformat() if self.timestamp else None,
+            'regime': self.regime,
+            'adx': self.adx,
+            'trend_direction': self.trend_direction,
+            'volatility': self.volatility
+        }
+
+
+class AnalysisSnapshot(Base):
+    """Historical analysis snapshots for comparison"""
+    __tablename__ = 'analysis_snapshots'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    symbol = Column(String(20), nullable=False, index=True)
+    timestamp = Column(DateTime, nullable=False)
+    price = Column(Float, nullable=False)
+    action = Column(String(10), nullable=False)  # 'long', 'short', 'none'
+    confidence = Column(Float, nullable=True)
+    convergence_score = Column(Float, nullable=True)
+    trend = Column(String(20), nullable=True)  # 'uptrend', 'downtrend', 'neutral'
+    key_reason = Column(Text, nullable=True)  # Main reasoning
+    indicators_snapshot = Column(Text, nullable=True)  # JSON of key indicators
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'symbol': self.symbol,
+            'timestamp': self.timestamp.isoformat() if self.timestamp else None,
+            'price': self.price,
+            'action': self.action,
+            'confidence': self.confidence,
+            'convergence_score': self.convergence_score,
+            'trend': self.trend,
+            'key_reason': self.key_reason,
+            'indicators_snapshot': json.loads(self.indicators_snapshot) if self.indicators_snapshot else {}
+        }
+
+
 class Database:
     """Database manager"""
     
@@ -310,6 +431,270 @@ class Database:
             logger.error(f"Error setting value: {e}")
             session.rollback()
             raise
+        finally:
+            session.close()
+    
+    # ========================================
+    # MARKET MEMORY METHODS
+    # ========================================
+    
+    def add_historical_level(self, symbol: str, level_type: str, price: float, 
+                            strength: str, timeframe: str, metadata: dict = None):
+        """Add or update a historical support/resistance level"""
+        session = self.get_session()
+        try:
+            # Check if similar level exists (within 0.5%)
+            tolerance = price * 0.005
+            existing = session.query(HistoricalLevel).filter(
+                HistoricalLevel.symbol == symbol,
+                HistoricalLevel.level_type == level_type,
+                HistoricalLevel.timeframe == timeframe,
+                HistoricalLevel.price >= price - tolerance,
+                HistoricalLevel.price <= price + tolerance,
+                HistoricalLevel.broken == False
+            ).first()
+            
+            if existing:
+                # Update existing level
+                existing.last_tested = datetime.utcnow()
+                existing.test_count += 1
+                existing.strength = strength  # Update strength
+                if metadata:
+                    existing.metadata = json.dumps(metadata)
+            else:
+                # Create new level
+                level = HistoricalLevel(
+                    symbol=symbol,
+                    level_type=level_type,
+                    price=price,
+                    strength=strength,
+                    timeframe=timeframe,
+                    first_detected=datetime.utcnow(),
+                    test_count=0,
+                    metadata=json.dumps(metadata) if metadata else None
+                )
+                session.add(level)
+            
+            session.commit()
+        except Exception as e:
+            logger.error(f"Error adding historical level: {e}")
+            session.rollback()
+        finally:
+            session.close()
+    
+    def get_historical_levels(self, symbol: str, current_price: float, 
+                             max_distance_pct: float = 0.05, limit: int = 10):
+        """Get relevant historical levels near current price"""
+        session = self.get_session()
+        try:
+            tolerance = current_price * max_distance_pct
+            levels = session.query(HistoricalLevel).filter(
+                HistoricalLevel.symbol == symbol,
+                HistoricalLevel.broken == False,
+                HistoricalLevel.price >= current_price - tolerance,
+                HistoricalLevel.price <= current_price + tolerance
+            ).order_by(HistoricalLevel.test_count.desc()).limit(limit).all()
+            
+            return [level.to_dict() for level in levels]
+        finally:
+            session.close()
+    
+    def mark_level_broken(self, symbol: str, price: float, level_type: str):
+        """Mark a level as broken when price passes through"""
+        session = self.get_session()
+        try:
+            tolerance = price * 0.005
+            levels = session.query(HistoricalLevel).filter(
+                HistoricalLevel.symbol == symbol,
+                HistoricalLevel.level_type == level_type,
+                HistoricalLevel.price >= price - tolerance,
+                HistoricalLevel.price <= price + tolerance,
+                HistoricalLevel.broken == False
+            ).all()
+            
+            for level in levels:
+                level.broken = True
+                level.broken_at = datetime.utcnow()
+            
+            session.commit()
+            return len(levels)
+        except Exception as e:
+            logger.error(f"Error marking level as broken: {e}")
+            session.rollback()
+            return 0
+        finally:
+            session.close()
+    
+    def add_order_block(self, symbol: str, block_type: str, price_low: float, 
+                       price_high: float, strength_score: int, volume_ratio: float):
+        """Add a new order block to history"""
+        session = self.get_session()
+        try:
+            block = OrderBlockHistory(
+                symbol=symbol,
+                block_type=block_type,
+                price_low=price_low,
+                price_high=price_high,
+                strength_score=strength_score,
+                volume_ratio=volume_ratio,
+                detected_at=datetime.utcnow(),
+                mitigated=False,
+                still_valid=True
+            )
+            session.add(block)
+            session.commit()
+            return block.id
+        except Exception as e:
+            logger.error(f"Error adding order block: {e}")
+            session.rollback()
+            return None
+        finally:
+            session.close()
+    
+    def get_valid_order_blocks(self, symbol: str, current_price: float, 
+                               max_age_days: int = 30):
+        """Get valid (unfilled) order blocks near current price"""
+        session = self.get_session()
+        try:
+            cutoff_date = datetime.utcnow() - __import__('datetime').timedelta(days=max_age_days)
+            
+            blocks = session.query(OrderBlockHistory).filter(
+                OrderBlockHistory.symbol == symbol,
+                OrderBlockHistory.still_valid == True,
+                OrderBlockHistory.mitigated == False,
+                OrderBlockHistory.detected_at >= cutoff_date
+            ).order_by(OrderBlockHistory.strength_score.desc()).all()
+            
+            return [block.to_dict() for block in blocks]
+        finally:
+            session.close()
+    
+    def mark_order_block_mitigated(self, block_id: int):
+        """Mark an order block as mitigated (filled)"""
+        session = self.get_session()
+        try:
+            block = session.query(OrderBlockHistory).filter(OrderBlockHistory.id == block_id).first()
+            if block:
+                block.mitigated = True
+                block.mitigated_at = datetime.utcnow()
+                session.commit()
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"Error marking order block as mitigated: {e}")
+            session.rollback()
+            return False
+        finally:
+            session.close()
+    
+    def add_regime_snapshot(self, symbol: str, regime: str, adx: float = None,
+                           trend_direction: str = None, volatility: str = None):
+        """Add a market regime snapshot"""
+        session = self.get_session()
+        try:
+            snapshot = MarketRegimeHistory(
+                symbol=symbol,
+                timestamp=datetime.utcnow(),
+                regime=regime,
+                adx=adx,
+                trend_direction=trend_direction,
+                volatility=volatility
+            )
+            session.add(snapshot)
+            session.commit()
+        except Exception as e:
+            logger.error(f"Error adding regime snapshot: {e}")
+            session.rollback()
+        finally:
+            session.close()
+    
+    def get_regime_history(self, symbol: str, hours: int = 48):
+        """Get recent regime history for a symbol"""
+        session = self.get_session()
+        try:
+            cutoff = datetime.utcnow() - __import__('datetime').timedelta(hours=hours)
+            snapshots = session.query(MarketRegimeHistory).filter(
+                MarketRegimeHistory.symbol == symbol,
+                MarketRegimeHistory.timestamp >= cutoff
+            ).order_by(MarketRegimeHistory.timestamp.desc()).all()
+            
+            return [s.to_dict() for s in snapshots]
+        finally:
+            session.close()
+    
+    def add_analysis_snapshot(self, symbol: str, price: float, action: str, 
+                             confidence: float = None, convergence_score: float = None,
+                             trend: str = None, key_reason: str = None, 
+                             indicators_snapshot: dict = None):
+        """Add an analysis snapshot for historical comparison"""
+        session = self.get_session()
+        try:
+            snapshot = AnalysisSnapshot(
+                symbol=symbol,
+                timestamp=datetime.utcnow(),
+                price=price,
+                action=action,
+                confidence=confidence,
+                convergence_score=convergence_score,
+                trend=trend,
+                key_reason=key_reason,
+                indicators_snapshot=json.dumps(indicators_snapshot) if indicators_snapshot else None
+            )
+            session.add(snapshot)
+            session.commit()
+        except Exception as e:
+            logger.error(f"Error adding analysis snapshot: {e}")
+            session.rollback()
+        finally:
+            session.close()
+    
+    def get_recent_analysis(self, symbol: str, hours: int = 24):
+        """Get recent analysis snapshots for comparison"""
+        session = self.get_session()
+        try:
+            cutoff = datetime.utcnow() - __import__('datetime').timedelta(hours=hours)
+            snapshots = session.query(AnalysisSnapshot).filter(
+                AnalysisSnapshot.symbol == symbol,
+                AnalysisSnapshot.timestamp >= cutoff
+            ).order_by(AnalysisSnapshot.timestamp.desc()).all()
+            
+            return [s.to_dict() for s in snapshots]
+        finally:
+            session.close()
+    
+    def get_recent_performance(self, symbol: str, days: int = 7):
+        """Get recent trade performance for a symbol"""
+        session = self.get_session()
+        try:
+            cutoff = datetime.utcnow() - __import__('datetime').timedelta(days=days)
+            trades = session.query(Trade).filter(
+                Trade.symbol == symbol,
+                Trade.entry_time >= cutoff,
+                Trade.status == 'closed'
+            ).all()
+            
+            if not trades:
+                return {
+                    'total_trades': 0,
+                    'wins': 0,
+                    'losses': 0,
+                    'win_rate': 0,
+                    'avg_pnl': 0,
+                    'total_pnl': 0
+                }
+            
+            wins = [t for t in trades if t.pnl_usd and t.pnl_usd > 0]
+            losses = [t for t in trades if t.pnl_usd and t.pnl_usd < 0]
+            total_pnl = sum(t.pnl_usd for t in trades if t.pnl_usd)
+            
+            return {
+                'total_trades': len(trades),
+                'wins': len(wins),
+                'losses': len(losses),
+                'win_rate': len(wins) / len(trades) if trades else 0,
+                'avg_pnl': total_pnl / len(trades) if trades else 0,
+                'total_pnl': total_pnl
+            }
         finally:
             session.close()
 
