@@ -34,6 +34,22 @@ from config import settings
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Simple cache for expensive endpoints (prevents frontend freezing)
+_endpoint_cache = {}
+_cache_ttl = 5  # 5 seconds - balance doesn't change that fast
+
+def get_cached(key: str):
+    """Get cached value if not expired"""
+    if key in _endpoint_cache:
+        value, timestamp = _endpoint_cache[key]
+        if (datetime.now() - timestamp).total_seconds() < _cache_ttl:
+            return value
+    return None
+
+def set_cached(key: str, value):
+    """Set cached value with timestamp"""
+    _endpoint_cache[key] = (value, datetime.now())
+
 # Create FastAPI app
 app = FastAPI(
     title="DeepSeek Trader API",
@@ -707,11 +723,16 @@ async def root():
 # Get balance
 @app.get("/balance")
 async def get_balance():
-    """Get account balance"""
+    """Get account balance (cached for 5s to prevent frontend freezing)"""
+    # Check cache first
+    cached = get_cached("balance")
+    if cached is not None:
+        return cached
+    
     try:
         if settings.paper_mode:
-            # Calculate balance from trades in database
-            trades = db.get_all_trades(limit=10000)  # Get all trades
+            # Calculate balance from trades in database (OPTIMIZED: limit to recent trades only)
+            trades = db.get_all_trades(limit=200)  # Reduced from 10000 to 200
             
             # Start with initial balance
             balance = float(settings.initial_balance)
@@ -721,7 +742,7 @@ async def get_balance():
                 if trade['status'] == 'closed' and trade['pnl_usd'] is not None:
                     balance += trade['pnl_usd']
             
-            return {
+            result = {
                 "balance": balance,
                 "currency": settings.base_currency,
                 "paper_mode": True
@@ -729,11 +750,16 @@ async def get_balance():
         else:
             balance_data = exchange.fetch_balance()
             usdt_balance = balance_data.get(settings.base_currency, {}).get('free', 0)
-            return {
+            result = {
                 "balance": usdt_balance,
                 "currency": settings.base_currency,
                 "paper_mode": False
             }
+        
+        # Cache result
+        set_cached("balance", result)
+        return result
+        
     except Exception as e:
         logger.error(f"Error fetching balance: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -1073,12 +1099,18 @@ async def get_open_positions():
 # Get metrics
 @app.get("/metrics")
 async def get_metrics(days: int = 30):
-    """Get performance metrics"""
+    """Get performance metrics (cached for 5s to prevent frontend freezing)"""
+    # Check cache first
+    cache_key = f"metrics_{days}"
+    cached = get_cached(cache_key)
+    if cached is not None:
+        return cached
+    
     try:
         metrics = db.get_metrics(days=days)
         
-        # Calculate summary stats from trades
-        trades = db.get_all_trades(limit=1000)
+        # Calculate summary stats from trades (OPTIMIZED: limit to recent trades only)
+        trades = db.get_all_trades(limit=200)  # Reduced from 1000 to 200
         closed_trades = [t for t in trades if t['status'] == 'closed']
         
         total_pnl = sum([t['pnl_usd'] for t in closed_trades if t['pnl_usd']])
@@ -1087,7 +1119,7 @@ async def get_metrics(days: int = 30):
         
         win_rate = len(winning_trades) / len(closed_trades) if closed_trades else 0
         
-        return {
+        result = {
             "metrics": metrics,
             "summary": {
                 "total_trades": len(closed_trades),
@@ -1097,6 +1129,11 @@ async def get_metrics(days: int = 30):
                 "total_pnl": total_pnl
             }
         }
+        
+        # Cache result
+        set_cached(cache_key, result)
+        return result
+        
     except Exception as e:
         logger.error(f"Error fetching metrics: {e}")
         raise HTTPException(status_code=500, detail=str(e))
