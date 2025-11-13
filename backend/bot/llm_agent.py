@@ -8,6 +8,9 @@ import logging
 from typing import Dict, Optional
 import time
 
+from bot.quantitative_confidence import quantitative_confidence
+from bot.adaptive_stops import adaptive_stops
+
 logger = logging.getLogger(__name__)
 
 
@@ -572,6 +575,98 @@ JSON format:
         
         return "\n".join(prompt_lines)
     
+    def apply_quantitative_confidence(self, decisions: Dict[str, Dict], 
+                                     symbols_data: Dict[str, Dict]) -> Dict[str, Dict]:
+        """
+        Replace LLM's subjective confidence with quantitative confidence scoring
+        
+        Args:
+            decisions: Dict of symbol -> decision from LLM
+            symbols_data: Dict of symbol -> indicators_multi_tf
+        
+        Returns:
+            Updated decisions with quantitative confidence
+        """
+        for symbol, decision in decisions.items():
+            if symbol not in symbols_data:
+                continue
+            
+            action = decision.get('action', 'none')
+            if action == 'none':
+                decision['confidence'] = 0.0
+                decision['confidence_components'] = {'reason': 'No trade'}
+                continue
+            
+            # Get 1h indicators for confidence calculation
+            indicators_1h = symbols_data[symbol].get('1h', {})
+            
+            # Calculate quantitative confidence
+            quant_confidence, components = quantitative_confidence.calculate_confidence(
+                indicators_1h, action
+            )
+            
+            # Store original LLM confidence for comparison
+            decision['llm_confidence'] = decision.get('confidence', 0.5)
+            
+            # Replace with quantitative confidence
+            decision['confidence'] = quant_confidence
+            decision['confidence_components'] = components
+            
+            logger.info(
+                f"📊 {symbol} Confidence: LLM={decision['llm_confidence']:.2f} → "
+                f"Quantitative={quant_confidence:.2f} (Δ{quant_confidence - decision['llm_confidence']:+.2f})"
+            )
+        
+        return decisions
+    
+    def apply_adaptive_stops(self, decisions: Dict[str, Dict],
+                            symbols_data: Dict[str, Dict]) -> Dict[str, Dict]:
+        """
+        Replace static stops with adaptive stop-loss/take-profit levels
+        
+        Args:
+            decisions: Dict of symbol -> decision
+            symbols_data: Dict of symbol -> indicators_multi_tf
+        
+        Returns:
+            Updated decisions with adaptive stops
+        """
+        for symbol, decision in decisions.items():
+            action = decision.get('action', 'none')
+            if action == 'none':
+                continue
+            
+            entry_price = decision.get('entry_price')
+            if not entry_price:
+                continue
+            
+            # Get 1h indicators
+            indicators_1h = symbols_data[symbol].get('1h', {})
+            
+            # Calculate adaptive stops
+            adaptive_stop_data = adaptive_stops.calculate_stops(
+                entry_price=entry_price,
+                action=action,
+                indicators_1h=indicators_1h
+            )
+            
+            # Store original LLM stops for comparison
+            decision['llm_stop_loss'] = decision.get('stop_loss')
+            decision['llm_take_profit'] = decision.get('take_profit')
+            
+            # Replace with adaptive stops
+            decision['stop_loss'] = adaptive_stop_data['stop_loss']
+            decision['take_profit'] = adaptive_stop_data['take_profit']
+            decision['risk_reward'] = adaptive_stop_data['risk_reward']
+            decision['stop_method'] = adaptive_stop_data['method']
+            
+            logger.info(
+                f"🎯 {symbol} Stops: Method={adaptive_stop_data['method']} | "
+                f"RR={adaptive_stop_data['risk_reward']:.2f}"
+            )
+        
+        return decisions
+    
     def get_decision(self, symbol: str, balance: float, risk_pct: float, 
                     indicators_multi_tf: Dict[str, Dict]) -> Optional[Dict]:
         """
@@ -625,6 +720,27 @@ JSON format:
         
         if response and 'decisions' in response:
             logger.info(f"Got batch decisions for {len(response['decisions'])} symbols")
+            
+            # Apply quantitative confidence scoring
+            logger.info("=" * 60)
+            logger.info("🧮 APPLYING QUANTITATIVE CONFIDENCE SCORING")
+            logger.info("=" * 60)
+            response['decisions'] = self.apply_quantitative_confidence(
+                response['decisions'], symbols_data
+            )
+            
+            # Apply adaptive stops
+            logger.info("=" * 60)
+            logger.info("🎯 APPLYING ADAPTIVE STOP-LOSS SYSTEM")
+            logger.info("=" * 60)
+            response['decisions'] = self.apply_adaptive_stops(
+                response['decisions'], symbols_data
+            )
+            
+            logger.info("=" * 60)
+            logger.info("✅ QUANTITATIVE ENHANCEMENTS COMPLETE")
+            logger.info("=" * 60)
+            
             return response
         
         logger.error("Failed to get valid batch response")

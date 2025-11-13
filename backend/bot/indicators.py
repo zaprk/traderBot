@@ -444,6 +444,92 @@ def normalize_indicators(indicators: Dict[str, any]) -> Dict[str, any]:
     return normalized
 
 
+def obv(df: pd.DataFrame) -> pd.Series:
+    """
+    Calculate On-Balance Volume (OBV)
+    
+    OBV measures buying and selling pressure by accumulating volume on up days
+    and subtracting volume on down days.
+    
+    Args:
+        df: DataFrame with 'close' and 'volume' columns
+    
+    Returns:
+        Series of OBV values
+    """
+    close = df['close']
+    volume = df['volume']
+    
+    # Calculate price direction
+    price_direction = close.diff()
+    
+    # Calculate signed volume
+    signed_volume = volume.copy()
+    signed_volume[price_direction < 0] = -volume[price_direction < 0]
+    signed_volume[price_direction == 0] = 0
+    
+    # Cumulative sum
+    obv_values = signed_volume.cumsum()
+    
+    return obv_values
+
+
+def detect_swing_points(df: pd.DataFrame, lookback: int = 5) -> Dict:
+    """
+    Detect swing highs and swing lows for structure-based stops
+    
+    A swing high is a peak where the high is higher than 'lookback' periods
+    before and after it. Swing low is the opposite.
+    
+    Args:
+        df: DataFrame with OHLC data
+        lookback: Number of periods to look back/forward
+    
+    Returns:
+        Dictionary with last swing high and low prices
+    """
+    if len(df) < lookback * 2 + 1:
+        return {
+            'swing_high': None,
+            'swing_low': None,
+            'swing_high_idx': None,
+            'swing_low_idx': None
+        }
+    
+    highs = df['high'].values
+    lows = df['low'].values
+    
+    swing_highs = []
+    swing_lows = []
+    
+    # Scan for swing points (skip first and last 'lookback' periods)
+    for i in range(lookback, len(df) - lookback):
+        # Check for swing high
+        is_swing_high = all(highs[i] > highs[i-j] for j in range(1, lookback+1)) and \
+                       all(highs[i] > highs[i+j] for j in range(1, lookback+1))
+        
+        # Check for swing low
+        is_swing_low = all(lows[i] < lows[i-j] for j in range(1, lookback+1)) and \
+                      all(lows[i] < lows[i+j] for j in range(1, lookback+1))
+        
+        if is_swing_high:
+            swing_highs.append((i, highs[i]))
+        
+        if is_swing_low:
+            swing_lows.append((i, lows[i]))
+    
+    # Get most recent swing points
+    last_swing_high = swing_highs[-1] if swing_highs else (None, None)
+    last_swing_low = swing_lows[-1] if swing_lows else (None, None)
+    
+    return {
+        'swing_high': last_swing_high[1],
+        'swing_low': last_swing_low[1],
+        'swing_high_idx': last_swing_high[0],
+        'swing_low_idx': last_swing_low[0]
+    }
+
+
 def calculate_all_indicators(df: pd.DataFrame) -> Dict[str, any]:
     """
     Calculate all indicators for a given DataFrame
@@ -482,9 +568,15 @@ def calculate_all_indicators(df: pd.DataFrame) -> Dict[str, any]:
     adx_values, regime = adx(df, 14)
     vol_change = volume_change_pct(df, 24)
     structure = market_structure(df, 20)
+    obv_values = obv(df)
+    swing_points = detect_swing_points(df, lookback=5)
     
     # Get latest values
     latest_idx = -1
+    
+    # Calculate volume metrics
+    volume = df['volume'].iloc[latest_idx] if 'volume' in df else 0
+    volume_sma = df['volume'].rolling(window=20).mean().iloc[latest_idx] if 'volume' in df and len(df) >= 20 else volume
     
     result = {
         'rsi': round(float(rsi_values.iloc[latest_idx]), 2) if not pd.isna(rsi_values.iloc[latest_idx]) else None,
@@ -497,8 +589,13 @@ def calculate_all_indicators(df: pd.DataFrame) -> Dict[str, any]:
         'adx': round(float(adx_values.iloc[latest_idx]), 2) if not pd.isna(adx_values.iloc[latest_idx]) else 0,
         'adx_regime': regime,
         'last_close': round(float(close.iloc[latest_idx]), 2),
+        'volume': float(volume),
+        'volume_sma': float(volume_sma),
         'volume_change': float(vol_change),
-        'market_structure': structure
+        'market_structure': structure,
+        'obv': round(float(obv_values.iloc[latest_idx]), 2) if not pd.isna(obv_values.iloc[latest_idx]) else None,
+        'swing_high': swing_points['swing_high'],
+        'swing_low': swing_points['swing_low']
     }
     
     # EMA alignment - convert to Python bool
