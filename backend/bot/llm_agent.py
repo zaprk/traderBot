@@ -90,7 +90,32 @@ Think through your analysis step-by-step:
 1. Analyze each crypto's technical indicators across all timeframes
 2. Consider volume, momentum, and trend alignment
 3. Compare opportunities - which looks best?
-4. Only recommend trades with high confidence (>0.7) and clear edge
+4. Only recommend trades with high confidence (>0.75) and clear edge
+
+🚨 CRITICAL: AVOID COUNTERTREND TRADES
+- If 1h/30m is in STRONG downtrend (ADX > 30) → DO NOT recommend LONG (even if RSI oversold)
+- If 1h/30m is in STRONG uptrend (ADX > 30) → DO NOT recommend SHORT (even if RSI overbought)
+- Countertrend trades based on oscillator divergence lose money consistently
+- Oversold RSI + buying pressure in downtrend = "catching the falling knife" (avoid)
+- Overbought RSI + selling pressure in uptrend = "fighting the trend" (avoid)
+- Only consider countertrend trades if structure break confirmed (higher high/lower low)
+
+✅ TREND ALIGNMENT REQUIREMENTS:
+- LONG: Only recommend if 1h/30m is in uptrend OR neutral/ranging (ADX < 25)
+- SHORT: Only recommend if 1h/30m is in downtrend OR neutral/ranging (ADX < 25)
+- Strong trends (ADX > 30) = trade with trend ONLY, no countertrend entries
+- Weak trends (ADX 20-25) = require structure confirmation for countertrend
+
+🔍 STRUCTURE CONFIRMATION REQUIREMENTS:
+- For LONG in weak downtrend: Require higher high on 15m/5m (HHHL structure)
+- For SHORT in weak uptrend: Require lower low on 15m/5m (LHLL structure)
+- Without structure confirmation, countertrend trades are HIGH RISK (avoid)
+
+📊 CONFIDENCE REQUIREMENTS:
+- Only recommend trades with confidence > 0.75 (high threshold)
+- If confidence < 0.75, recommend "none" (prefer no trade over weak setup)
+- Trend alignment + volume confirmation + momentum = high confidence
+- Countertrend + no confirmation = low confidence (avoid)
 
 STOP-LOSS & TAKE-PROFIT RULES:
 - Use ATR (Average True Range) for risk management
@@ -570,7 +595,13 @@ JSON format:
         prompt_lines.append(
             "\n🎯 STRATEGY: Day trading with 2% risk per trade. ATR-based stops. "
             "Use HISTORICAL CONTEXT to avoid repeating mistakes and respect institutional levels. "
-            "Only recommend HIGH CONFIDENCE trades (>0.7). Think through each crypto carefully."
+            "Only recommend HIGH CONFIDENCE trades (>0.75). Think through each crypto carefully."
+        )
+        prompt_lines.append(
+            "\n🚨 CRITICAL: AVOID COUNTERTREND TRADES - "
+            "If 1h/30m is in STRONG trend (ADX > 30), DO NOT trade against it. "
+            "Only consider countertrend trades if structure break confirmed (higher high/lower low). "
+            "Prefer 'none' over weak setups."
         )
         
         return "\n".join(prompt_lines)
@@ -599,10 +630,12 @@ JSON format:
             
             # Get 1h indicators for confidence calculation
             indicators_1h = symbols_data[symbol].get('1h', {})
+            # Get multi-timeframe indicators for trend alignment check
+            indicators_multi_tf = symbols_data[symbol]
             
-            # Calculate quantitative confidence
+            # Calculate quantitative confidence (with trend alignment penalty)
             quant_confidence, components = quantitative_confidence.calculate_confidence(
-                indicators_1h, action
+                indicators_1h, action, indicators_multi_tf
             )
             
             # Store original LLM confidence for comparison

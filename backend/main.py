@@ -27,6 +27,7 @@ from bot.convergence_scorer import convergence_scorer
 from bot.order_flow import order_flow_analyzer
 from bot.regime_filter import regime_filter
 from bot.correlation_filter import correlation_filter
+from bot.trend_filter import trend_filter
 from bot.market_memory import initialize_market_memory, market_memory
 from config import settings
 
@@ -539,8 +540,32 @@ async def auto_trading_loop():
                     action = decision.get('action')
                     confidence = decision.get('confidence', 0)
                     
-                    if action in ['long', 'short'] and confidence > 0.7:
-                        # 🚨 FIX #1: MOMENTUM CONFLICT CHECK (prevent trading against recent momentum)
+                    # 🚨 INCREASED CONFIDENCE THRESHOLD: 0.75 (was 0.7) - Prefer "none" over weak setups
+                    if action in ['long', 'short'] and confidence > 0.75:
+                        # 🚨 FIX #1: TREND FILTER (hard block countertrend trades in strong trends)
+                        if symbol in filtered_symbols:
+                            indicators_multi_tf = filtered_symbols[symbol]['indicators']
+                            trend_check = trend_filter.check_trend_alignment(
+                                indicators_multi_tf, action
+                            )
+                            
+                            if not trend_check['allowed']:
+                                logger.error(
+                                    f"🚨 {symbol}: HARD BLOCK {action.upper()} - {trend_check['reason']}"
+                                )
+                                logger.error(
+                                    f"   Higher TF trend: {trend_check.get('higher_tf_trend', 'N/A')} "
+                                    f"({trend_check.get('strength', 'N/A')}) on {trend_check.get('timeframe', 'N/A')}"
+                                )
+                                continue
+                            else:
+                                if trend_check.get('is_countertrend'):
+                                    logger.warning(
+                                        f"⚠️ {symbol}: Countertrend trade allowed with confirmation: "
+                                        f"{trend_check['reason']}"
+                                    )
+                        
+                        # 🚨 FIX #2: MOMENTUM CONFLICT CHECK (prevent trading against recent momentum)
                         if symbol in filtered_symbols:
                             indicators_multi_tf = filtered_symbols[symbol]['indicators']
                             momentum_check = convergence_scorer.check_momentum_conflict(
@@ -959,11 +984,11 @@ async def get_batch_decisions(request: BatchDecisionRequest):
         # Log full response including reasoning
         log_llm_reasoning(request.symbols, response)
         
-        # Auto-execute trades with high confidence (>0.7)
+        # Auto-execute trades with high confidence (>0.75) - Increased threshold
         executed_trades = []
         if response.get('decisions'):
             for symbol, decision in response['decisions'].items():
-                if decision['action'] in ['long', 'short'] and decision.get('confidence', 0) > 0.7:
+                if decision['action'] in ['long', 'short'] and decision.get('confidence', 0) > 0.75:
                     try:
                         # Calculate position size
                         units = trade_manager.compute_position_size(

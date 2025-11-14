@@ -26,13 +26,15 @@ class QuantitativeConfidence:
             'momentum_score': 0.30
         }
     
-    def calculate_confidence(self, indicators_1h: Dict, action: str) -> Tuple[float, Dict]:
+    def calculate_confidence(self, indicators_1h: Dict, action: str, 
+                            indicators_multi_tf: Dict[str, Dict] = None) -> Tuple[float, Dict]:
         """
         Calculate quantitative confidence score (0.0 - 1.0)
         
         Args:
             indicators_1h: 1-hour timeframe indicators
             action: 'long', 'short', or 'none'
+            indicators_multi_tf: Multi-timeframe indicators (optional, for trend alignment check)
         
         Returns:
             (confidence_score, components_breakdown)
@@ -45,6 +47,7 @@ class QuantitativeConfidence:
         rsi = indicators_1h.get('rsi')
         volume = indicators_1h.get('volume')
         volume_sma = indicators_1h.get('volume_sma')
+        trend_interp = indicators_1h.get('trend_interpretation', '').lower()
         
         # Validate data availability
         if any(x is None for x in [adx, rsi, volume, volume_sma]):
@@ -60,12 +63,21 @@ class QuantitativeConfidence:
         # 3. MOMENTUM SCORE (0-1): RSI alignment with direction
         momentum_score = self._calculate_momentum_score(rsi, action)
         
-        # Weighted composite
-        confidence = (
+        # 4. 🚨 TREND ALIGNMENT PENALTY: Heavily penalize countertrend trades
+        trend_alignment_penalty = self._calculate_trend_alignment_penalty(
+            indicators_1h, action, indicators_multi_tf
+        )
+        
+        # Base weighted composite
+        base_confidence = (
             self.weights['trend_strength'] * trend_strength +
             self.weights['volume_score'] * volume_score +
             self.weights['momentum_score'] * momentum_score
         )
+        
+        # Apply trend alignment penalty (multiplier)
+        # If countertrend in strong trend → penalty reduces confidence by 50-80%
+        confidence = base_confidence * trend_alignment_penalty
         
         # Ensure bounds [0, 1]
         confidence = max(0.0, min(1.0, confidence))
@@ -74,11 +86,19 @@ class QuantitativeConfidence:
             'trend_strength': round(trend_strength, 3),
             'volume_score': round(volume_score, 3),
             'momentum_score': round(momentum_score, 3),
+            'trend_alignment_penalty': round(trend_alignment_penalty, 3),
+            'base_confidence': round(base_confidence, 3),
             'confidence': round(confidence, 3),
             'adx': round(adx, 2),
             'rsi': round(rsi, 2),
             'volume_ratio': round(volume / volume_sma, 2) if volume_sma > 0 else 0
         }
+        
+        if trend_alignment_penalty < 1.0:
+            logger.warning(
+                f"⚠️ Countertrend penalty applied: {trend_alignment_penalty:.2f}x "
+                f"(confidence reduced from {base_confidence:.3f} to {confidence:.3f})"
+            )
         
         logger.info(f"📊 Quantitative Confidence: {confidence:.3f} | Components: {components}")
         
@@ -168,6 +188,93 @@ class QuantitativeConfidence:
             score = 0.0
         
         return score
+    
+    def _calculate_trend_alignment_penalty(self, indicators_1h: Dict, action: str,
+                                          indicators_multi_tf: Dict[str, Dict] = None) -> float:
+        """
+        Calculate trend alignment penalty for countertrend trades
+        
+        Returns:
+            Multiplier (0.0 - 1.0):
+            - 1.0 = No penalty (aligned trade)
+            - 0.5-0.8 = Moderate penalty (weak countertrend)
+            - 0.2-0.5 = Strong penalty (moderate countertrend)
+            - 0.0-0.2 = Severe penalty (strong countertrend)
+        """
+        # Check higher timeframe trend (1h or 30m)
+        higher_tf_trend = None
+        if indicators_multi_tf:
+            for tf in ['1h', '30m']:
+                if tf in indicators_multi_tf:
+                    indicators = indicators_multi_tf[tf]
+                    trend_interp = indicators.get('trend_interpretation', '').lower()
+                    adx = indicators.get('adx', 0)
+                    
+                    if 'uptrend' in trend_interp:
+                        higher_tf_trend = {'direction': 'bullish', 'adx': adx}
+                        break
+                    elif 'downtrend' in trend_interp:
+                        higher_tf_trend = {'direction': 'bearish', 'adx': adx}
+                        break
+        
+        # If no higher TF data, use 1h indicators
+        if not higher_tf_trend:
+            trend_interp = indicators_1h.get('trend_interpretation', '').lower()
+            adx = indicators_1h.get('adx', 0)
+            
+            if 'uptrend' in trend_interp:
+                higher_tf_trend = {'direction': 'bullish', 'adx': adx}
+            elif 'downtrend' in trend_interp:
+                higher_tf_trend = {'direction': 'bearish', 'adx': adx}
+        
+        # No trend data → no penalty
+        if not higher_tf_trend:
+            return 1.0
+        
+        # Check if trade is countertrend
+        is_countertrend = False
+        if action == 'long' and higher_tf_trend['direction'] == 'bearish':
+            is_countertrend = True
+        elif action == 'short' and higher_tf_trend['direction'] == 'bullish':
+            is_countertrend = True
+        
+        # No countertrend → no penalty
+        if not is_countertrend:
+            return 1.0
+        
+        # Calculate penalty based on ADX (trend strength)
+        adx_value = higher_tf_trend['adx']
+        
+        if adx_value >= 30:
+            # STRONG trend → Severe penalty (0.0-0.2)
+            # Countertrend in strong trend is VERY dangerous
+            penalty = max(0.0, 0.2 - (adx_value - 30) * 0.01)
+            logger.warning(
+                f"🚨 SEVERE COUNTERTREND PENALTY: {action.upper()} in STRONG "
+                f"{higher_tf_trend['direction'].upper()} trend (ADX: {adx_value:.1f}) → "
+                f"Penalty: {penalty:.2f}x"
+            )
+        elif adx_value >= 25:
+            # MODERATE trend → Strong penalty (0.2-0.5)
+            penalty = 0.5 - (adx_value - 25) * 0.06
+            logger.warning(
+                f"⚠️ STRONG COUNTERTREND PENALTY: {action.upper()} in MODERATE "
+                f"{higher_tf_trend['direction'].upper()} trend (ADX: {adx_value:.1f}) → "
+                f"Penalty: {penalty:.2f}x"
+            )
+        elif adx_value >= 20:
+            # WEAK trend → Moderate penalty (0.5-0.8)
+            penalty = 0.8 - (adx_value - 20) * 0.06
+            logger.info(
+                f"⚠️ MODERATE COUNTERTREND PENALTY: {action.upper()} in WEAK "
+                f"{higher_tf_trend['direction'].upper()} trend (ADX: {adx_value:.1f}) → "
+                f"Penalty: {penalty:.2f}x"
+            )
+        else:
+            # RANGING (ADX < 20) → No penalty (trend is weak anyway)
+            penalty = 1.0
+        
+        return max(0.0, min(1.0, penalty))
     
     def adjust_confidence_for_convergence(self, base_confidence: float, 
                                          convergence_score: int) -> float:
